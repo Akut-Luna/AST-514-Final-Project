@@ -17,15 +17,21 @@ def itteration_step(r1, r2, p1, m1, C):
             rho: rho_i, desity at r_i
     '''
 
+    # handle div by 0 error
+    if r2 == 0.0:
+        r2 = 0.1 # small enough
+
     T = (C/(p1**(-2/3)))**(3/5)
     rho = (p1*M_mole)/(R*T)
     m2 = m1 - 4/3 * np.pi * (r1**3 - r2**3) * rho
-    p2 = p1 - G * m2 * rho * (1/r1 + 1/r2)
+    p2 = p1 + G * m2 * rho * (1/r2 - 1/r1)
+        
 
     return m2, p2, T, rho
 
 # ------------------ constants ------------------
-M_mole =  1.008 # g/mole
+# M_mole =  1.008 # g/mole (monoatomic H)
+M_mole =  2.3 # g/mole TODO: find good value
 R = 8.31434e7   # erg / (K * mole)
 G = 6.67430e-8  # dyn cm^2 / g^2
 
@@ -48,10 +54,10 @@ C_cgs = P_surface_cgs**(1-gamma) * T_surface_cgs**gamma # (dyn * K)/cm^2
 '''
  We want to sampe more r values closer to the surface because P changes there more rapidly. 
 '''
-N = 100
+N = 10
 R = R_mean_cgs
 theta = 3                       # strech factor -> higher = more more dense close to the surface
-s = np.linspace(0.0, 1.0, N+1)  # normalized coordinates
+s = np.linspace(0.0, 1.0, N)    # normalized coordinates
 r_grid = R * (1 - s**theta)     # power-law stretched coordinates
 
 # ---------------- prepare data -----------------
@@ -60,14 +66,11 @@ data = np.zeros((N,5)) # [r, m, p, T, rho]
 data[0,0] = R_mean_cgs
 data[0,1] = M_cgs
 data[0,2] = P_surface_cgs
-data[0,3] = T_surface_cgs
-data[0,4] = M_cgs / (4/3*np.pi*R_mean_cgs**3)
 
 for i in range(len(r_grid)-1):
     r1 = r_grid[i]
     r2 = r_grid[i+1]
 
-    data[i,0] = r1
     m1 = data[i,1] 
     p1 = data[i,2]
 
@@ -77,6 +80,7 @@ for i in range(len(r_grid)-1):
     data[i,4] = rho
 
     if i < len(r_grid)-2:
+        data[i+1,0] = r2
         data[i+1,1] = m2
         data[i+1,2] = p2
 
