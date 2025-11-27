@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import matplotlib.pyplot as plt
 
 def itteration_step(r1, r2, p1, m1, C):
     '''
@@ -21,17 +22,26 @@ def itteration_step(r1, r2, p1, m1, C):
     if r2 == 0.0:
         r2 = 0.1 # small enough
 
+    # ================== DEBUG ==================
+    if p1 < 0:
+        print('\n Negative pressure!!! \n')
+        print(f'r1: {r1}')
+        print(f'r2: {r2}')
+        print(f'p1: {p1}')
+        print(f'm1: {m1}')
+        print('')
+    # ===========================================
+    
     T = (C/(p1**(-2/3)))**(3/5)
     rho = (p1*M_mole)/(R*T)
     m2 = m1 - 4/3 * np.pi * (r1**3 - r2**3) * rho
     p2 = p1 + G * m2 * rho * (1/r2 - 1/r1)
         
-
     return m2, p2, T, rho
 
 # ------------------ constants ------------------
 # M_mole =  1.008 # g/mole (monoatomic H)
-M_mole =  2.3 # g/mole TODO: find good value
+M_mole =  2.3   # g/mole TODO: find good value
 R = 8.31434e7   # erg / (K * mole)
 G = 6.67430e-8  # dyn cm^2 / g^2
 
@@ -54,20 +64,20 @@ C_cgs = P_surface_cgs**(1-gamma) * T_surface_cgs**gamma # (dyn * K)/cm^2
 '''
  We want to sampe more r values closer to the surface because P changes there more rapidly. 
 '''
-N = 10
-R = R_mean_cgs
-theta = 3                       # strech factor -> higher = more more dense close to the surface
-s = np.linspace(0.0, 1.0, N)    # normalized coordinates
-r_grid = R * (1 - s**theta)     # power-law stretched coordinates
+N = 100
+theta = 1                               # strech factor -> higher = more more dense close to the surface
+s = np.linspace(0.0, 1.0, N+1)          # normalized coordinates
+r_grid = R_mean_cgs * (1 - s**theta)    # power-law stretched coordinates
 
 # ---------------- prepare data -----------------
-data = np.zeros((N,5)) # [r, m, p, T, rho]
+data = np.zeros((N+1,5)) # [r, m, p, T, rho]
 
 data[0,0] = R_mean_cgs
 data[0,1] = M_cgs
 data[0,2] = P_surface_cgs
 
-for i in range(len(r_grid)-1):
+# --------------- run simulation ----------------
+for i in range(N):
     r1 = r_grid[i]
     r2 = r_grid[i+1]
 
@@ -79,10 +89,46 @@ for i in range(len(r_grid)-1):
     data[i,3] = T
     data[i,4] = rho
 
-    if i < len(r_grid)-2:
+    if i < len(data)-1:
         data[i+1,0] = r2
         data[i+1,1] = m2
         data[i+1,2] = p2
 
+    # print(f'{i+1}/{N}', end='\r')
+
+# ----------------- save data -------------------
+data =  data[:-1] # the last line contains no useful data and can be removed
 header = 'r [cm], m [g], p [dyn/cm^2], T [K], rho [g/cm^3]'
 np.savetxt('data/Jupiter_01.csv', data, delimiter=',', header=header)
+
+
+ax1 = plt.subplot(2, 2, 1)
+ax1.plot(data[:,0], data[:,1], '.-')
+ax1.set_xlabel('r [cm]')
+ax1.set_ylabel('m [g]')
+ax1.set_title('Mass')
+ax1.grid(True, alpha=0.3)
+
+ax2 = plt.subplot(2, 2, 2)
+ax2.plot(data[:,0], data[:,2], '.-')
+ax2.set_xlabel('r [cm]')
+ax2.set_ylabel('p [dyn/cm^2]')
+ax2.set_title('Pressure')
+ax2.grid(True, alpha=0.3)
+
+ax3 = plt.subplot(2, 2, 3)
+ax3.plot(data[:,0], data[:,3], '.-')
+ax3.set_xlabel('r [cm]')
+ax3.set_ylabel('T [K]')
+ax3.set_title('Temperature')
+ax3.grid(True, alpha=0.3)
+
+ax4 = plt.subplot(2, 2, 4)
+ax4.plot(data[:,0], data[:,4], '.-')
+ax4.set_xlabel('r [cm]')
+ax4.set_ylabel('rho [g/cm^3]')
+ax4.set_title('Density')
+ax4.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
