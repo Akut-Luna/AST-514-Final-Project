@@ -49,7 +49,7 @@ def itteration_step(r1, r2, p1, m1, C):
 
 # ------------------ constants ------------------
 # M_mole =  1.008 # g/mole (monoatomic H)
-M_mole =  2.3   # g/mole TODO: find good value
+M_mole =  2.22   # g/mole https://radiojove.gsfc.nasa.gov/education/educationalcd/Posters&Fliers/FactSheets/JupiterFactSheet.pdf
 R = 8.31434e7   # erg / (K * mole)
 G = 6.67430e-8  # dyn cm^2 / g^2
 
@@ -139,4 +139,5 @@ ax4.set_title('Density')
 ax4.grid(True, alpha=0.3)
 
 plt.tight_layout()
+plt.savefig('plots/ex_01_Jupiter.pdf')
 plt.show()
