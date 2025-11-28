@@ -1,11 +1,12 @@
 import os
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 
 def itteration_step(EoS, r1, r2, p1, m1, C):
     '''
         Parameters:
-            EoS: equ of state, must have arguments in a list [p, t, ...]
+            EoS: equ of state, must have arguments in a list [p, t, ...] TODO
             r1: r_i, bigger/outer radius
             r2: r_i+1, smaller/inner radius
             p1: p_i, pressure at r_i
@@ -41,8 +42,8 @@ def itteration_step(EoS, r1, r2, p1, m1, C):
         print('')
     # ===========================================
     
-    T = temp_from_pressure(p1, C) # FOR MONOATOMIC H!!!
-    rho = EoS(p1, T)
+    T = temp_from_pressure(p1, C) # TODO: FOR MONOATOMIC H -> finde other!!!
+    rho = EoS(p1, T) # TODO find better way to generalise
     
     m2 = m1 - 4/3 * np.pi * (r1**3 - r2**3) * rho
     p2 = p1 + G * m2 * rho * (1/r2 - 1/r1)
@@ -73,22 +74,124 @@ def EoS_polytropic(p, T):
     K = 1.96e12
     return np.sqrt(p/K)
 
-def EoS_analytical_iron(p, T):
+def EoS_analytical_Fe(p, T):
     p_Gpa = p * 1e-10
-    
-    K0 = 156.2 # GPa
-    K0_prime = 6.08
-    rho0 = 8.30 # Mg/m^3
+    n = [0.05845, 0.91754, 0.02119, 0.00282]
+    A = [54, 65, 57, 58]
+    Z = [26, 26, 26, 26]
 
+    if p_Gpa <= 2.09e4: # Vinet (look up)
+        rho = np.interp(p_Gpa, EoS_df_Fe['p'], EoS_df_Fe['rho'])
+    else: # TFD
+        kappa = 9.524e13 * Z**(-10/3)
+        zeta = (p/kappa)**(1/5)
+        epsilon = (3/(32 * np.pi**2 * Z**2))**(1/3)
+        phi = 3**(1/3) / 20 + epsilon/(4 * 3**(1/3))
+        x0 = 1/(zeta + phi)
 
-def EoS_analytical_silicate(p, T):
-    pass
+        rho = sum(n*A)/sum(x0**3 / Z)
+
+        # TODO: UNITS
+
+    return rho
+
+def EoS_analytical_Si(p, T):
+    p_Gpa = p * 1e-10
+    n = [0.9223, 0.0467, 0.0310]
+    A = [28, 29, 30]
+    Z = [14, 14, 14]
+
+    if p_Gpa <= 1.35e4: # BME4 (look up)
+        rho = np.interp(p_Gpa, EoS_df_Si['p'], EoS_df_Si['rho'])
+    else: # TFD
+        kappa = 9.524e13 * Z**(-10/3)
+        zeta = (p/kappa)**(1/5)
+        epsilon = (3/(32 * np.pi**2 * Z**2))**(1/3)
+        phi = 3**(1/3) / 20 + epsilon/(4 * 3**(1/3))
+        x0 = 1/(zeta + phi)
+
+        rho = sum(n*A)/sum(x0**3 / Z)
+
+        # TODO: UNITS
+
+    return rho
 
 def EoS_tabulated_H(p, T):
-    pass
+    # find closest temperature
+    T_query = np.log10(T)
+    T_closest = min(EoS_blocks_H.keys(), key=lambda T: abs(T - T_query))
+    df = EoS_blocks_H[T_closest]
+
+    # interpolate rho
+    log_rho = np.interp(np.log10(p), df['log_P'], df['log_rho'])
+    
+    return np.exp(log_rho)
 
 def EoS_tabulated_H2O(p, T):
-    pass
+    # find closest temperature
+    T_query = np.log10(T)
+    T_closest = min(EoS_blocks_H2O.keys(), key=lambda T: abs(T - T_query))
+    df = EoS_blocks_H2O[T_closest]
+
+    # interpolate rho
+    log_rho = np.interp(np.log10(p), df['log_P'], df['log_rho'])
+    
+    return np.exp(log_rho)
+
+def parse_EoS_H(filename):
+    """
+    Load data blocks separated by temperature headers
+    
+    Returns:
+        dict: {temperature: dataframe} for each block
+    """
+    blocks = {}
+    current_temp = None
+    current_data = []
+    
+    with open(filename, 'r') as f:
+        for line in f:
+            # Check if line is a temperature header
+            if line.strip().startswith('#iT='):
+                # Save previous block if exists
+                if current_temp is not None and current_data:
+                    blocks[current_temp] = pd.DataFrame(
+                        current_data,
+                        columns=[
+                            'log_T', 'log_P', 'log_rho', 'log_U', 'log_S',
+                            'dlrho_dlT_P', 'dlrho_dlP_T', 'dlS_dlT_P',
+                            'dlS_dlP_T', 'grad_ad'
+                        ]
+                    )
+                    current_data = []
+                
+                # Extract temperature from header
+                current_temp = float(line.split('T= ')[1])
+            
+            # Skip comment lines
+            elif line.strip().startswith('#'):
+                continue
+            
+            # Parse data lines
+            elif line.strip():
+                values = [float(x) for x in line.split()]
+                current_data.append(values)
+        
+        # Save last block
+        if current_temp is not None and current_data:
+            blocks[current_temp] = pd.DataFrame(
+                current_data,
+                columns=[
+                    'log_T', 'log_P', 'log_rho', 'log_U', 'log_S',
+                    'dlrho_dlT_P', 'dlrho_dlP_T', 'dlS_dlT_P',
+                    'dlS_dlP_T', 'grad_ad'
+                ]
+            )
+    
+    return blocks
+
+def parse_EoS_H2O(filename):
+    pass # TODO
 
 def plot_data(data, filename):
     plt.figure(figsize=(12,8))
@@ -199,4 +302,9 @@ if __name__ == '__main__':
     R = 8.31434e7   # erg / (K * mole)
     G = 6.67430e-8  # dyn cm^2 / g^2
 
-    simulate_Jupiter(N=100, theta=1)
+    EoS_df_Fe = pd.read_csv('data/EoS_Fe/EoS_Fe.csv', names=['p', 'rho'], skiprows=1)
+    EoS_df_Si = pd.read_csv('data/EoS_Si/EoS_Si.csv', names=['p', 'rho'], skiprows=1)
+    EoS_blocks_H = parse_EoS_H('data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv')
+    EoS_blocks_H2O = parse_EoS_H2O()
+    #iT= 121 log T= 8.000
+    simulate_Jupiter(N=100, theta=5)
