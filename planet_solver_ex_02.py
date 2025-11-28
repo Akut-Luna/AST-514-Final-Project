@@ -54,6 +54,43 @@ def temp_from_pressure(p, C):
 def rho_from_EoS_ideal_gas(p, T):
     return (p*M_mole)/(R*T)
 
+def plot_data(data, filename):
+    plt.figure(figsize=(12,8))
+    ax1 = plt.subplot(2, 2, 1)
+    ax1.plot(data[:,0], data[:,1], '.-')
+    ax1.set_xlabel('r [cm]')
+    ax1.set_ylabel('m [g]')
+    ax1.set_title('Mass')
+    ax1.grid(True, alpha=0.3)
+
+    ax2 = plt.subplot(2, 2, 2, sharex=ax1)
+    ax2.plot(data[:,0], data[:,2], '.-')
+    ax2.set_xlabel('r [cm]')
+    ax2.set_ylabel('p [dyn/cm^2]')
+    ax2.set_title('Pressure')
+    ax2.grid(True, alpha=0.3)
+
+    ax3 = plt.subplot(2, 2, 3, sharex=ax1)
+    ax3.plot(data[:,0], data[:,3], '.-')
+    ax3.set_xlabel('r [cm]')
+    ax3.set_ylabel('T [K]')
+    ax3.set_title('Temperature')
+    ax3.grid(True, alpha=0.3)
+
+    ax4 = plt.subplot(2, 2, 4, sharex=ax1)
+    ax4.plot(data[:,0], data[:,4], '.-')
+    ax4.set_xlabel('r [cm]')
+    ax4.set_ylabel('$\\rho$ [g/cm^3]')
+    ax4.set_title('Density')
+    ax4.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(f'plots/{filename}.pdf')
+    plt.show()
+
+def save_data(data, filename):
+    header = 'r [cm], m [g], p [dyn/cm^2], T [K], rho [g/cm^3]'
+    np.savetxt(f'data/{filename}.csv', data, delimiter=',', header=header)
 
 # ------------------ constants ------------------
 # M_mole =  1.008 # g/mole (monoatomic H)
@@ -114,38 +151,6 @@ for i in range(N):
 
 # ----------------- save data -------------------
 data =  data[:-1] # the last line contains no useful data and can be removed
-header = 'r [cm], m [g], p [dyn/cm^2], T [K], rho [g/cm^3]'
-np.savetxt('data/Jupiter_01.csv', data, delimiter=',', header=header)
 
-plt.figure(figsize=(12,8))
-ax1 = plt.subplot(2, 2, 1)
-ax1.plot(data[:,0], data[:,1], '.-')
-ax1.set_xlabel('r [cm]')
-ax1.set_ylabel('m [g]')
-ax1.set_title('Mass')
-ax1.grid(True, alpha=0.3)
-
-ax2 = plt.subplot(2, 2, 2, sharex=ax1)
-ax2.plot(data[:,0], data[:,2], '.-')
-ax2.set_xlabel('r [cm]')
-ax2.set_ylabel('p [dyn/cm^2]')
-ax2.set_title('Pressure')
-ax2.grid(True, alpha=0.3)
-
-ax3 = plt.subplot(2, 2, 3, sharex=ax1)
-ax3.plot(data[:,0], data[:,3], '.-')
-ax3.set_xlabel('r [cm]')
-ax3.set_ylabel('T [K]')
-ax3.set_title('Temperature')
-ax3.grid(True, alpha=0.3)
-
-ax4 = plt.subplot(2, 2, 4, sharex=ax1)
-ax4.plot(data[:,0], data[:,4], '.-')
-ax4.set_xlabel('r [cm]')
-ax4.set_ylabel('$\\rho$ [g/cm^3]')
-ax4.set_title('Density')
-ax4.grid(True, alpha=0.3)
-
-plt.tight_layout()
-plt.savefig('plots/ex_02_Jupiter.pdf')
-plt.show()
+save_data(data, 'ex_02_Jupiter')
+plot_data(data, 'ex_02_Jupiter')
