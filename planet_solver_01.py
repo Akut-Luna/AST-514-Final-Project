@@ -23,6 +23,14 @@ def itteration_step(r1, r2, p1, m1, C):
         r2 = 0.1 # small enough
 
     # ================== DEBUG ==================
+    if m1 < 0:
+        print('\n Negative mass!!! \n')
+        print(f'r1: {r1}')
+        print(f'r2: {r2}')
+        print(f'p1: {p1}')
+        print(f'm1: {m1}')
+        print('')
+
     if p1 < 0:
         print('\n Negative pressure!!! \n')
         print(f'r1: {r1}')
@@ -65,7 +73,7 @@ C_cgs = P_surface_cgs**(1-gamma) * T_surface_cgs**gamma # (dyn * K)/cm^2
  We want to sampe more r values closer to the surface because P changes there more rapidly. 
 '''
 N = 100
-theta = 1                               # strech factor -> higher = more more dense close to the surface
+theta = 5                               # strech factor -> higher = more more dense close to the surface
 s = np.linspace(0.0, 1.0, N+1)          # normalized coordinates
 r_grid = R_mean_cgs * (1 - s**theta)    # power-law stretched coordinates
 
@@ -101,7 +109,7 @@ data =  data[:-1] # the last line contains no useful data and can be removed
 header = 'r [cm], m [g], p [dyn/cm^2], T [K], rho [g/cm^3]'
 np.savetxt('data/Jupiter_01.csv', data, delimiter=',', header=header)
 
-
+plt.figure(figsize=(12,8))
 ax1 = plt.subplot(2, 2, 1)
 ax1.plot(data[:,0], data[:,1], '.-')
 ax1.set_xlabel('r [cm]')
@@ -109,24 +117,24 @@ ax1.set_ylabel('m [g]')
 ax1.set_title('Mass')
 ax1.grid(True, alpha=0.3)
 
-ax2 = plt.subplot(2, 2, 2)
+ax2 = plt.subplot(2, 2, 2, sharex=ax1)
 ax2.plot(data[:,0], data[:,2], '.-')
 ax2.set_xlabel('r [cm]')
 ax2.set_ylabel('p [dyn/cm^2]')
 ax2.set_title('Pressure')
 ax2.grid(True, alpha=0.3)
 
-ax3 = plt.subplot(2, 2, 3)
+ax3 = plt.subplot(2, 2, 3, sharex=ax1)
 ax3.plot(data[:,0], data[:,3], '.-')
 ax3.set_xlabel('r [cm]')
 ax3.set_ylabel('T [K]')
 ax3.set_title('Temperature')
 ax3.grid(True, alpha=0.3)
 
-ax4 = plt.subplot(2, 2, 4)
+ax4 = plt.subplot(2, 2, 4, sharex=ax1)
 ax4.plot(data[:,0], data[:,4], '.-')
 ax4.set_xlabel('r [cm]')
-ax4.set_ylabel('rho [g/cm^3]')
+ax4.set_ylabel('$\\rho$ [g/cm^3]')
 ax4.set_title('Density')
 ax4.grid(True, alpha=0.3)
 
