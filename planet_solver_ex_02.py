@@ -3,115 +3,85 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-def itteration_step(EoS, r1, r2, p1, m1, C):
+# ================== ideal gas ==================
+def EoS_ideal_gas(p, C, M_mole):
     '''
         Parameters:
-            EoS: equ of state, must have arguments in a list [p, t, ...] TODO
-            r1: r_i, bigger/outer radius
-            r2: r_i+1, smaller/inner radius
-            p1: p_i, pressure at r_i
-            m1: m_i, mass enclosed by r_i
-            C: p0^(1-gamma) * T^gamma, 
+            p: [Pa] pressure
+            C: [Pa^(-2/3) * K^(5/3)] adiabtic constant
+            M_mole: [kg/mole] mean molecular mass per mole
 
         Returns:
-            p2: p_i+1, pressure at r_i+1
-            m2: m_i+1, mass enclosed by r_i+1
-            T: T_i, temperature at r_i
-            rho: rho_i, desity at r_i
+            rho: [kg/m^3] density
     '''
 
-    # handle div by 0 error
-    if r2 == 0.0:
-        r2 = 0.1 # small enough
-
-    # ================== DEBUG ==================
-    if m1 < 0:
-        print('\n Negative mass!!! \n')
-        print(f'r1: {r1}')
-        print(f'r2: {r2}')
-        print(f'p1: {p1}')
-        print(f'm1: {m1}')
-        print('')
-
-    if p1 < 0:
-        print('\n Negative pressure!!! \n')
-        print(f'r1: {r1}')
-        print(f'r2: {r2}')
-        print(f'p1: {p1}')
-        print(f'm1: {m1}')
-        print('')
-    # ===========================================
+    R = 8.31446261815324 # J / (K * mole) gas const
     
-    T = temp_from_pressure(p1, C) # TODO: FOR MONOATOMIC H -> finde other!!!
-    rho = EoS(p1, T) # TODO find better way to generalise
-    
-    m2 = m1 - 4/3 * np.pi * (r1**3 - r2**3) * rho
-    p2 = p1 + G * m2 * rho * (1/r2 - 1/r1)
-        
-    return m2, p2, T, rho
+    T = (C/(p**(-2/3)))**(3/5) # monoatomic H
+    rho = (p*M_mole)/(R*T)
 
+    return rho
 
-# ================== Ideal Gas ==================
-
-def temp_from_pressure(p, C):
-    return (C/(p**(-2/3)))**(3/5)
-
-def EoS_ideal_gas(p, T):
-    '''
-        Parameters:
-            p: pressure
-            T: temperature
-        Returns:
-            rho: density
-    '''
-    return (p*M_mole)/(R*T)
-
-def simulate_Jupiter(N, theta):
+def simulate_ideal_gas(R_surf, T_surf, P_surf, M_surf, M_mole, N, theta, output_name):
     '''
         Prameters:
+            R_surf: [km] radius of planet
+            T_surf: [K] surface temperature of planet
+            P_surf: [Pa] surface pressure of planet
+            M_surf: [kg] total mass of planet
+            M_mole: [kg/mole] mean molecular mass per mole
             N: number of steps
             theta: strech factor -> higher = r_grid is more dense close to the surface
+            output_name: name for data and plot file
     '''
+    # --------------- constants -----------------
+    G = 6.67430e-11 # m^3 / (kg s^2)
 
-    # ------------- boundary conditions -------------
-    R_mean_Jupiter = 69911   # km
-    T_surface_Jupiter = 165  # K
-    P_surface_Jupiter = 1    # bar
-    M_Jupiter = 1.8982e27    # kg
+    gamma = 5/3 # monoatomic H
+    C = P_surf**(1-gamma) * T_surf**gamma # Pa^{-2/3} * K^{5/3}
 
-    # --------------- convert to cgs ----------------
-    R_mean_cgs = R_mean_Jupiter * 1e5        # cm
-    T_surface_cgs = T_surface_Jupiter        # K
-    P_surface_cgs = P_surface_Jupiter * 1e6  # dyn/cm^2
-    M_cgs = M_Jupiter * 1000                 # g
+    # ------------ inital conditions ------------
+    r_grid, data = create_grids(R_surf, N, theta)
 
-    gamma = 5/3
-    C_cgs = P_surface_cgs**(1-gamma) * T_surface_cgs**gamma # (dyn * K)/cm^2
+    data[0,0] = R_surf
+    data[0,1] = M_surf
+    data[0,2] = P_surf
 
-    # ------------------- r_grid --------------------
-    '''
-    We want to sampe more r values closer to the surface because P changes there more rapidly. 
-    '''
-    s = np.linspace(0.0, 1.0, N+1)          # normalized coordinates
-    r_grid = R_mean_cgs * (1 - s**theta)    # power-law stretched coordinates
-
-    # ---------------- prepare data -----------------
-    data = np.zeros((N+1,5)) # [r, m, p, T, rho]
-
-    data[0,0] = R_mean_cgs
-    data[0,1] = M_cgs
-    data[0,2] = P_surface_cgs
-
-    # --------------- run simulation ----------------
+    # ------------- run simulation --------------
+    print('start')
     for i in range(N):
         r1 = r_grid[i]
         r2 = r_grid[i+1]
+        
+        if r2 == 0.0: r2 = 1e-6 # handle div by 0 error
 
         m1 = data[i,1] 
         p1 = data[i,2]
 
-        # m2, p2, T, rho = itteration_step(EoS_ideal_gas, r1, r2, p1, m1, C_cgs)
-        m2, p2, T, rho = itteration_step(EoS_polytropic, r1, r2, p1, m1, C_cgs)
+        # ================== DEBUG ==================
+        if m1 < 0:
+            print('\n Negative mass!!! \n')
+            print(f'r1: {r1}')
+            print(f'r2: {r2}')
+            print(f'p1: {p1}')
+            print(f'm1: {m1}')
+            print('')
+
+        if p1 < 0:
+            print('\n Negative pressure!!! \n')
+            print(f'r1: {r1}')
+            print(f'r2: {r2}')
+            print(f'p1: {p1}')
+            print(f'm1: {m1}')
+            print('')
+        # ===========================================
+        
+        # ------------------- EoS -------------------
+        rho = EoS_ideal_gas(p1, C, M_mole)
+        # -------------------------------------------
+        
+        m2 = m1 - 4/3 * np.pi * (r1**3 - r2**3) * rho
+        p2 = p1 + G * m2 * rho * (1/r2 - 1/r1)
 
         data[i,3] = T
         data[i,4] = rho
@@ -126,22 +96,106 @@ def simulate_Jupiter(N, theta):
     # ----------------- save data -------------------
     data =  data[:-1] # the last line contains no useful data and can be removed
 
-    save_data(data, 'ex_02_Jupiter')
-    plot_data(data, 'ex_02_Jupiter')
-
+    save_data(data, output_name)
+    plot_data(data, output_name)
 
 # ================== polytropic =================
-
-def EoS_polytropic(p, T):
+def EoS_polytropic(p):
     '''
         Parameters:
-            p: pressure
-            T: temperature
+            p: [Pa] pressure
         Returns:
-            rho: density
+            rho: [kg/m^3] density
     '''
-    K = 1.96e12
-    return np.sqrt(p/K)
+    # 1 dyne/cm^2 = 0.1 Pa
+    # 1 g/cm^3 = 1000 kg/m^3
+
+    P *= 0.1 # dyne / cm^2
+    K = 1.96e12 # (cm^2/g)^2 * dyne/cm^2
+    
+    rho = np.sqrt(p/K) # g/cm^2
+    rho /= 1000 # kg/m^3
+    
+    return rho
+
+def simulate_polytrop(R_surf, T_surf, P_surf, M_surf, M_mole, N, theta, output_name):
+    '''
+        Prameters:
+            R_surf: [km] radius of planet
+            T_surf: [K] surface temperature of planet
+            P_surf: [Pa] surface pressure of planet
+            M_surf: [kg] total mass of planet
+            M_mole: [kg/mole] mean molecular mass per mole
+            N: number of steps
+            theta: strech factor -> higher = r_grid is more dense close to the surface
+            output_name: name for data and plot file
+    '''
+
+    # --------------- constants -----------------
+    R = 8.31446261815324    # J / (K * mole) gas const
+    G = 6.67430e-11         # m^3 / (kg s^2) grav const
+
+    gamma = 5/3 # monoatomic H
+    C = P_surf**(1-gamma) * T_surf**gamma # Pa^{-2/3} * K^{5/3}
+
+    # ------------ inital conditions ------------
+    r_grid, data = create_grids(R_surf, N, theta)
+
+    data[0,0] = R_surf
+    data[0,1] = M_surf
+    data[0,2] = P_surf
+
+    # ------------- run simulation --------------
+    print('start')
+    for i in range(N):
+        r1 = r_grid[i]
+        r2 = r_grid[i+1]
+        
+        if r2 == 0.0: r2 = 1e-6 # handle div by 0 error
+
+        m1 = data[i,1] 
+        p1 = data[i,2]
+
+        # ================== DEBUG ==================
+        if m1 < 0:
+            print('\n Negative mass!!! \n')
+            print(f'r1: {r1}')
+            print(f'r2: {r2}')
+            print(f'p1: {p1}')
+            print(f'm1: {m1}')
+            print('')
+
+        if p1 < 0:
+            print('\n Negative pressure!!! \n')
+            print(f'r1: {r1}')
+            print(f'r2: {r2}')
+            print(f'p1: {p1}')
+            print(f'm1: {m1}')
+            print('')
+        # ===========================================
+        
+        T = (C/(p1**(-2/3)))**(3/5) # monoatomic H
+        rho = (p1*M_mole)/(R*T)
+        
+        m2 = m1 - 4/3 * np.pi * (r1**3 - r2**3) * rho
+        p2 = p1 + G * m2 * rho * (1/r2 - 1/r1)
+
+        data[i,3] = T
+        data[i,4] = rho
+
+        if i < len(data)-1:
+            data[i+1,0] = r2
+            data[i+1,1] = m2
+            data[i+1,2] = p2
+
+        # print(f'{i+1}/{N}', end='\r')
+
+    # ----------------- save data -------------------
+    data =  data[:-1] # the last line contains no useful data and can be removed
+
+    save_data(data, output_name)
+    plot_data(data, output_name)
+
 
 # ================== analytical =================
 
@@ -272,34 +326,45 @@ def parse_EoS_H2O(filename, colums):
     return blocks
 
 # ============== helper functions ===============
+def create_grids(R, N=100, theta=1):
+    # ------------------- r_grid --------------------
+    '''
+    We want to sampe more r values closer to the surface because P changes there more rapidly. 
+    '''
+    s = np.linspace(0.0, 1.0, N+1)          # normalized coordinates
+    r_grid = R * (1 - s**theta)    # power-law stretched coordinates
+
+    # ---------------- prepare data -----------------
+    data = np.zeros((N+1,5)) # [r, m, p, T, rho]
+    return r_grid, data
 
 def plot_data(data, filename):
     plt.figure(figsize=(12,8))
     ax1 = plt.subplot(2, 2, 1)
     ax1.plot(data[:,0], data[:,1], '.-')
-    ax1.set_xlabel('r [cm]')
-    ax1.set_ylabel('m [g]')
+    ax1.set_xlabel('r [m]')
+    ax1.set_ylabel('m [kg]')
     ax1.set_title('Mass')
     ax1.grid(True, alpha=0.3)
 
     ax2 = plt.subplot(2, 2, 2, sharex=ax1)
     ax2.plot(data[:,0], data[:,2], '.-')
-    ax2.set_xlabel('r [cm]')
-    ax2.set_ylabel('p [dyn/cm^2]')
+    ax2.set_xlabel('r [m]')
+    ax2.set_ylabel('p [Pa]')
     ax2.set_title('Pressure')
     ax2.grid(True, alpha=0.3)
 
     ax3 = plt.subplot(2, 2, 3, sharex=ax1)
     ax3.plot(data[:,0], data[:,3], '.-')
-    ax3.set_xlabel('r [cm]')
+    ax3.set_xlabel('r [mm]')
     ax3.set_ylabel('T [K]')
     ax3.set_title('Temperature')
     ax3.grid(True, alpha=0.3)
 
     ax4 = plt.subplot(2, 2, 4, sharex=ax1)
     ax4.plot(data[:,0], data[:,4], '.-')
-    ax4.set_xlabel('r [cm]')
-    ax4.set_ylabel('$\\rho$ [g/cm^3]')
+    ax4.set_xlabel('r [m]')
+    ax4.set_ylabel('$\\rho$ [kg/m^3]')
     ax4.set_title('Density')
     ax4.grid(True, alpha=0.3)
 
@@ -308,32 +373,65 @@ def plot_data(data, filename):
     plt.show()
 
 def save_data(data, filename):
-    header = 'r [cm], m [g], p [dyn/cm^2], T [K], rho [g/cm^3]'
+    header = 'r [m], m [kg], p [Pa], T [K], rho [kg/m^3]'
     np.savetxt(f'data/{filename}.csv', data, delimiter=',', header=header)
 
 
 if __name__ == '__main__':
 
-    # ------------------ constants ------------------
-    # M_mole =  1.008 # g/mole (monoatomic H)
-    M_mole =  2.22   # g/mole https://radiojove.gsfc.nasa.gov/education/educationalcd/Posters&Fliers/FactSheets/JupiterFactSheet.pdf
-    R = 8.31434e7   # erg / (K * mole)
-    G = 6.67430e-8  # dyn cm^2 / g^2
+    # ----------- boundary conditions -----------
+    R_mean_Jupiter = 69911   # km
+    T_surface_Jupiter = 165  # K
+    P_surface_Jupiter = 1e5  # Pa
+    M_Jupiter = 1.8982e27    # kg
 
-    EoS_df_Fe = pd.read_csv('data/EoS_Fe/EoS_Fe.csv', names=['p', 'rho'], skiprows=1)
-    EoS_df_Si = pd.read_csv('data/EoS_Si/EoS_Si.csv', names=['p', 'rho'], skiprows=1)
-    EoS_blocks_H = parse_EoS_H(
-        filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv', 
-        columns=[
-            'log_T', 'log_P', 'log_rho', 'log_U', 'log_S',
-            'dlrho_dlT_P', 'dlrho_dlP_T', 'dlS_dlT_P',
-            'dlS_dlP_T', 'grad_ad'
-        ])
-    EoS_blocks_H2O = parse_EoS_H2O(
-        filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
-        colums=[
-            'press', 'temp', 'rho', 'ad_grad', 's', 
-            'u', 'c', 'mmw', 'x_ion', 'x_d', 'phase'
-        ])
+    # M_mole_H = 1.008 * 0.001   # kg/mole
+    M_mole_Jupiter = 2.22 * 0.001   # kg/mole https://radiojove.gsfc.nasa.gov/education/educationalcd/Posters&Fliers/FactSheets/JupiterFactSheet.pdf
+
+    simulate_ideal_gas(
+        R_mean_Jupiter, 
+        T_surface_Jupiter,
+        P_surface_Jupiter,
+        M_Jupiter,
+        M_mole_Jupiter,
+        N=100,
+        theta=5,
+        output_name='01_ideal_gas_Jupiter'
+    )
+
+    # # ------------------ constants ------------------
+    # M_mole =  1.008 # g/mole (monoatomic H)
+    # M_mole =  2.22   # g/mole https://radiojove.gsfc.nasa.gov/education/educationalcd/Posters&Fliers/FactSheets/JupiterFactSheet.pdf
+    # R = 8.31434e7   # erg / (K * mole)
+    # G = 6.67430e-8  # dyn cm^2 / g^2
+
+    # # ------------- convert to cgs --------------
+    # R_mean_cgs = R * 1e5     # cm
+    # T_surface_cgs = T        # K
+    # P_surface_cgs = P * 1e6  # dyn/cm^2
+    # M_cgs = M * 1000         # g
+
+    # # 1 bar = 10⁶ dyne/cm² = 10⁶ barye
+    # # [C] = (10^6 barye)^{-2/3} * K^{5/3}
+    # # [C] = 10^{-4} * barye^{-2/3} * K^{5/3}
+    # # [C] = 10^{-4} * (dyne/cm^2)^{-2/3} * K^{5/3}
+    # C_cgs = P_surface_cgs**(1-gamma) * T_surface_cgs**gamma # (dyn * K)/cm^2
+    # print(C_cgs)
+
+    # EoS_df_Fe = pd.read_csv('data/EoS_Fe/EoS_Fe.csv', names=['p', 'rho'], skiprows=1)
+    # EoS_df_Si = pd.read_csv('data/EoS_Si/EoS_Si.csv', names=['p', 'rho'], skiprows=1)
+    # EoS_blocks_H = parse_EoS_H(
+    #     filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv', 
+    #     columns=[
+    #         'log_T', 'log_P', 'log_rho', 'log_U', 'log_S',
+    #         'dlrho_dlT_P', 'dlrho_dlP_T', 'dlS_dlT_P',
+    #         'dlS_dlP_T', 'grad_ad'
+    #     ])
+    # EoS_blocks_H2O = parse_EoS_H2O(
+    #     filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
+    #     colums=[
+    #         'press', 'temp', 'rho', 'ad_grad', 's', 
+    #         'u', 'c', 'mmw', 'x_ion', 'x_d', 'phase'
+    #     ])
     
-    simulate_Jupiter(N=100, theta=5)
+    # simulate_Jupiter(N=100, theta=5)
