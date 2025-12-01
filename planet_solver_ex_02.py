@@ -60,7 +60,7 @@ def simulate_ideal_gas(R_surf, T_surf, P_surf, M_surf, M_mole, N, theta, output_
 
         # ================== DEBUG ==================
         if m1 < 0:
-            print('\n Negative mass!!! \n')
+            print('Negative mass!!!')
             print(f'r1: {r1}')
             print(f'r2: {r2}')
             print(f'p1: {p1}')
@@ -68,7 +68,7 @@ def simulate_ideal_gas(R_surf, T_surf, P_surf, M_surf, M_mole, N, theta, output_
             print('')
 
         if p1 < 0:
-            print('\n Negative pressure!!! \n')
+            print('Negative pressure!!!')
             print(f'r1: {r1}')
             print(f'r2: {r2}')
             print(f'p1: {p1}')
@@ -153,7 +153,7 @@ def simulate_polytropic(R_surf, T_surf, P_surf, M_surf, N, theta, output_name, s
 
         # ================== DEBUG ==================
         if m1 < 0:
-            print('\n Negative mass!!! \n')
+            print('Negative mass!!!')
             print(f'r1: {r1}')
             print(f'r2: {r2}')
             print(f'p1: {p1}')
@@ -161,7 +161,7 @@ def simulate_polytropic(R_surf, T_surf, P_surf, M_surf, N, theta, output_name, s
             print('')
 
         if p1 < 0:
-            print('\n Negative pressure!!! \n')
+            print('Negative pressure!!!')
             print(f'r1: {r1}')
             print(f'r2: {r2}')
             print(f'p1: {p1}')
@@ -296,7 +296,7 @@ def simulate_analytical(R_surf, T_surf, P_surf, M_surf, element, N, theta, outpu
 
         # ================== DEBUG ==================
         if m1 < 0:
-            print('\n Negative mass!!! \n')
+            print('Negative mass!!!')
             print(f'r1: {r1}')
             print(f'r2: {r2}')
             print(f'p1: {p1}')
@@ -304,7 +304,7 @@ def simulate_analytical(R_surf, T_surf, P_surf, M_surf, element, N, theta, outpu
             print('')
 
         if p1 < 0:
-            print('\n Negative pressure!!! \n')
+            print('Negative pressure!!!')
             print(f'r1: {r1}')
             print(f'r2: {r2}')
             print(f'p1: {p1}')
@@ -513,7 +513,7 @@ def simulate_tabulated(R_surf, T_surf, P_surf, M_surf, element, filename, N, the
 
         # ================== DEBUG ==================
         if m1 < 0:
-            print('\n Negative mass!!! \n')
+            print('Negative mass!!!')
             print(f'r1: {r1}')
             print(f'r2: {r2}')
             print(f'p1: {p1}')
@@ -521,7 +521,7 @@ def simulate_tabulated(R_surf, T_surf, P_surf, M_surf, element, filename, N, the
             print('')
 
         if p1 < 0:
-            print('\n Negative pressure!!! \n')
+            print('Negative pressure!!!')
             print(f'r1: {r1}')
             print(f'r2: {r2}')
             print(f'p1: {p1}')
@@ -641,15 +641,15 @@ def save_data(data, filename):
 
 if __name__ == '__main__':
     N = 100
-    theta = 5
+    theta = 3
 
     # ----------- boundary conditions -----------
-    R_mean_Jupiter = 69911000 # m
-    T_surface_Jupiter = 165   # K
-    P_surface_Jupiter = 1e5   # Pa
-    M_Jupiter = 1.8982e27     # kg
+    R_mean_Jupiter = 69911000     # m
+    T_surface_Jupiter = 165       # K
+    P_surface_Jupiter = 1e5       # Pa
+    M_Jupiter = 1.8982e27         # kg
 
-    # M_mole_H = 1.008 * 0.001   # kg/mole
+    # M_mole_Jupiter = 1.008 * 0.001   # kg/mole
     M_mole_Jupiter = 2.22 * 0.001   # kg/mole https://radiojove.gsfc.nasa.gov/education/educationalcd/Posters&Fliers/FactSheets/JupiterFactSheet.pdf
 
     simulate_ideal_gas(
