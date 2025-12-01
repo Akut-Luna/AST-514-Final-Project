@@ -22,10 +22,10 @@ def EoS_ideal_gas(p, C, M_mole):
 
     return rho, T
 
-def simulate_ideal_gas(R_surf, T_surf, P_surf, M_surf, M_mole, N, theta, output_name):
+def simulate_ideal_gas(R_surf, T_surf, P_surf, M_surf, M_mole, N, theta, output_name, show_plot=False):
     '''
         Prameters:
-            R_surf: [km] radius of planet
+            R_surf: [m] radius of planet
             T_surf: [K] surface temperature of planet
             P_surf: [Pa] surface pressure of planet
             M_surf: [kg] total mass of planet
@@ -97,7 +97,7 @@ def simulate_ideal_gas(R_surf, T_surf, P_surf, M_surf, M_mole, N, theta, output_
     data =  data[:-1] # the last line contains no useful data and can be removed
 
     save_data(data, output_name)
-    plot_data(data, output_name)
+    plot_data(data, output_name, show_plot=show_plot)
 
 # ================== polytropic =================
 def EoS_polytropic(p):
@@ -118,10 +118,10 @@ def EoS_polytropic(p):
     
     return rho
 
-def simulate_polytropic(R_surf, T_surf, P_surf, M_surf, N, theta, output_name):
+def simulate_polytropic(R_surf, T_surf, P_surf, M_surf, N, theta, output_name, show_plot=False):
     '''
         Prameters:
-            R_surf: [km] radius of planet
+            R_surf: [m] radius of planet
             T_surf: [K] surface temperature of planet
             P_surf: [Pa] surface pressure of planet
             M_surf: [kg] total mass of planet
@@ -190,7 +190,7 @@ def simulate_polytropic(R_surf, T_surf, P_surf, M_surf, N, theta, output_name):
     data =  data[:-1] # the last line contains no useful data and can be removed
 
     save_data(data, output_name)
-    plot_data(data, output_name)
+    plot_data(data, output_name, show_plot=show_plot)
 
 # ================== analytical =================
 def EoS_analytical_Fe(p, df):
@@ -218,8 +218,7 @@ def EoS_analytical_Fe(p, df):
         x0 = 1/(zeta + phi)
 
         rho = sum(n*A)/sum(x0**3 / Z)
-
-        # TODO: UNITS
+        rho *= 1e3 # Mg/m^3 -> kg/m^3
 
     return rho
 
@@ -239,6 +238,8 @@ def EoS_analytical_Si(p, df):
 
     if p <= 1.35e4: # BME4 (look up)
         rho = np.interp(p, df['p'], df['rho'])
+        rho *= 1e3 # Mg/m^3 -> kg/m^3
+    
     else: # TFD
         kappa = 9.524e13 * Z**(-10/3)
         zeta = (p/kappa)**(1/5)
@@ -247,15 +248,14 @@ def EoS_analytical_Si(p, df):
         x0 = 1/(zeta + phi)
 
         rho = sum(n*A)/sum(x0**3 / Z)
-
-        # TODO: UNITS
+        rho *= 1e3 # Mg/m^3 -> kg/m^3
 
     return rho
 
-def simulate_analytical(R_surf, T_surf, P_surf, M_surf, element, N, theta, output_name):
+def simulate_analytical(R_surf, T_surf, P_surf, M_surf, element, N, theta, output_name, show_plot=False):
     '''
         Prameters:
-            R_surf: [km] radius of planet
+            R_surf: [m] radius of planet
             T_surf: [K] surface temperature of planet
             P_surf: [Pa] surface pressure of planet
             M_surf: [kg] total mass of planet
@@ -336,7 +336,7 @@ def simulate_analytical(R_surf, T_surf, P_surf, M_surf, element, N, theta, outpu
     data =  data[:-1] # the last line contains no useful data and can be removed
 
     save_data(data, output_name)
-    plot_data(data, output_name)
+    plot_data(data, output_name, show_plot=show_plot)
 
 # ================== tabulated ==================
 def parse_EoS_H(filename, columns):
@@ -441,10 +441,10 @@ def EoS_tabulated_H2O(p, T, blocks):
     
     return rho, T_closest
 
-def simulate_tabulated(R_surf, T_surf, P_surf, M_surf, element, filename, N, theta, output_name):
+def simulate_tabulated(R_surf, T_surf, P_surf, M_surf, element, filename, N, theta, output_name, show_plot=False):
     '''
         Prameters:
-            R_surf: [km] radius of planet
+            R_surf: [m] radius of planet
             T_surf: [K] surface temperature of planet
             P_surf: [Pa] surface pressure of planet
             M_surf: [kg] total mass of planet
@@ -574,10 +574,10 @@ def simulate_tabulated(R_surf, T_surf, P_surf, M_surf, element, filename, N, the
     data =  data[:-1] # the last line contains no useful data and can be removed
 
     save_data(data, output_name)
-    plot_data(data, output_name)
+    plot_data(data, output_name, show_plot=show_plot)
 
 # ============== helper functions ===============
-def create_grids(R, N=100, theta=1):
+def create_grids(R, N, theta):
     # ------------------- r_grid --------------------
     '''
     We want to sampe more r values closer to the surface because P changes there more rapidly. 
@@ -589,7 +589,7 @@ def create_grids(R, N=100, theta=1):
     data = np.zeros((N+1,5)) # [r, m, p, T, rho]
     return r_grid, data
 
-def plot_data(data, filename):
+def plot_data(data, filename, show_plot=False):
     name_parts = filename.split('_')
     title = ''
     for part in name_parts[1:]:
@@ -598,6 +598,7 @@ def plot_data(data, filename):
     plt.figure(figsize=(12,8))
     ax1 = plt.subplot(2, 2, 1)
     ax1.plot(data[:,0], data[:,1], '.-')
+    ax1.set_yscale('log')
     ax1.set_xlabel('r [m]')
     ax1.set_ylabel('m [kg]')
     ax1.set_title('Mass')
@@ -605,6 +606,7 @@ def plot_data(data, filename):
 
     ax2 = plt.subplot(2, 2, 2, sharex=ax1)
     ax2.plot(data[:,0], data[:,2], '.-')
+    ax2.set_yscale('log')
     ax2.set_xlabel('r [m]')
     ax2.set_ylabel('p [Pa]')
     ax2.set_title('Pressure')
@@ -612,13 +614,15 @@ def plot_data(data, filename):
 
     ax3 = plt.subplot(2, 2, 3, sharex=ax1)
     ax3.plot(data[:,0], data[:,3], '.-')
-    ax3.set_xlabel('r [mm]')
+    ax3.set_yscale('log')
+    ax3.set_xlabel('r [m]')
     ax3.set_ylabel('T [K]')
     ax3.set_title('Temperature')
     ax3.grid(True, alpha=0.3)
 
     ax4 = plt.subplot(2, 2, 4, sharex=ax1)
     ax4.plot(data[:,0], data[:,4], '.-')
+    ax4.set_yscale('log')
     ax4.set_xlabel('r [m]')
     ax4.set_ylabel('$\\rho$ [kg/m^3]')
     ax4.set_title('Density')
@@ -627,77 +631,81 @@ def plot_data(data, filename):
     plt.suptitle(title)
     plt.tight_layout()
     plt.savefig(f'plots/{filename}.pdf')
-    plt.show()
+
+    if show_plot:
+        plt.show()
 
 def save_data(data, filename):
     header = 'r [m], m [kg], p [Pa], T [K], rho [kg/m^3]'
     np.savetxt(f'data/{filename}.csv', data, delimiter=',', header=header)
 
 if __name__ == '__main__':
+    N = 100
+    theta = 5
 
     # ----------- boundary conditions -----------
-    R_mean_Jupiter = 69911   # km
-    T_surface_Jupiter = 165  # K
-    P_surface_Jupiter = 1e5  # Pa
-    M_Jupiter = 1.8982e27    # kg
+    R_mean_Jupiter = 69911000 # m
+    T_surface_Jupiter = 165   # K
+    P_surface_Jupiter = 1e5   # Pa
+    M_Jupiter = 1.8982e27     # kg
 
     # M_mole_H = 1.008 * 0.001   # kg/mole
     M_mole_Jupiter = 2.22 * 0.001   # kg/mole https://radiojove.gsfc.nasa.gov/education/educationalcd/Posters&Fliers/FactSheets/JupiterFactSheet.pdf
 
-    # simulate_ideal_gas(
-    #     R_mean_Jupiter, 
-    #     T_surface_Jupiter,
-    #     P_surface_Jupiter,
-    #     M_Jupiter,
-    #     M_mole_Jupiter,
-    #     N=100,
-    #     theta=1,
-    #     output_name='01_ideal_gas_Jupiter'
-    # )
+    simulate_ideal_gas(
+        R_mean_Jupiter, 
+        T_surface_Jupiter,
+        P_surface_Jupiter,
+        M_Jupiter,
+        M_mole_Jupiter,
+        N=N,
+        theta=theta,
+        output_name='01_ideal_gas_Jupiter'
+    )
 
-    # simulate_polytropic(
-    #     R_mean_Jupiter, 
-    #     T_surface_Jupiter,
-    #     P_surface_Jupiter,
-    #     M_Jupiter,
-    #     N=100,
-    #     theta=1,
-    #     output_name='02_polytropic_Jupiter'
-    # )
+    simulate_polytropic(
+        R_mean_Jupiter, 
+        T_surface_Jupiter,
+        P_surface_Jupiter,
+        M_Jupiter,
+        N=N,
+        theta=theta,
+        output_name='02_polytropic_Jupiter'
+    )
 
-    # simulate_analytical(
-    #     R_mean_Jupiter, 
-    #     T_surface_Jupiter,
-    #     P_surface_Jupiter,
-    #     M_Jupiter,
-    #     element='Fe',
-    #     N=100,
-    #     theta=1,
-    #     output_name='03_analytical_Fe_Jupiter'
-    # )
+    simulate_analytical(
+        R_mean_Jupiter, 
+        T_surface_Jupiter,
+        P_surface_Jupiter,
+        M_Jupiter,
+        element='Fe',
+        N=N,
+        theta=theta,
+        output_name='03_analytical_Fe_Jupiter'
+    )
 
-    # simulate_analytical(
-    #     R_mean_Jupiter, 
-    #     T_surface_Jupiter,
-    #     P_surface_Jupiter,
-    #     M_Jupiter,
-    #     element='Si',
-    #     N=100,
-    #     theta=1,
-    #     output_name='04_analytical_Si_Jupiter'
-    # )
+    simulate_analytical(
+        R_mean_Jupiter, 
+        T_surface_Jupiter,
+        P_surface_Jupiter,
+        M_Jupiter,
+        element='Si',
+        N=N,
+        theta=theta,
+        output_name='04_analytical_Si_Jupiter'
+    )
 
-    # simulate_tabulated(
-    #     R_mean_Jupiter, 
-    #     T_surface_Jupiter,
-    #     P_surface_Jupiter,
-    #     M_Jupiter,
-    #     element='H',
-    #     filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv',
-    #     N=100,
-    #     theta=1,
-    #     output_name='05_tabulated_H_Jupiter'
-    # )
+    simulate_tabulated(
+        R_mean_Jupiter, 
+        T_surface_Jupiter,
+        P_surface_Jupiter,
+        M_Jupiter,
+        element='H',
+        filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv',
+        N=N,
+        theta=theta,
+        output_name='05_tabulated_H_Jupiter'
+    )
 
     simulate_tabulated(
         R_mean_Jupiter, 
@@ -706,10 +714,12 @@ if __name__ == '__main__':
         M_Jupiter,
         element='H2O',
         filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
-        N=100,
-        theta=1,
+        N=N,
+        theta=theta,
         output_name='06_tabulated_H2O_Jupiter'
     )
+
+    # plt.show()
 
     # # ------------------ constants ------------------
     # M_mole =  1.008 # g/mole (monoatomic H)
