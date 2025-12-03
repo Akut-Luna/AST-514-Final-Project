@@ -56,15 +56,15 @@ def simulate_ideal_gas(R_surf, M_surf, P_surf, N, theta, output_name, show_plot=
 
         res = simulate_T_independet_part_2(r1, r2, m1, P1, rho, data, i)
         if res == False:
-            break
+            break        
 
-        # print(f'{i+1}/{N}', end='\r')
-        
-
-    # ----------------- save data -------------------
-    
+    # -------------- Clean up data --------------
     data =  data[:-(N-i)] # the last lines contain no useful/realistic data and can be removed
 
+    # ------------ Moment of Inertia ------------
+    calculate_normalised_MoI(data, M_surf, R_surf)
+
+    # ----------------- Save data ---------------
     save_data(data, N, output_name)
     plot_data(data, N, output_name, show_plot=show_plot)
 
@@ -119,11 +119,13 @@ def simulate_polytropic(R_surf, M_surf, P_surf, N, theta, output_name, show_plot
         if res == False:
             break
 
-        # print(f'{i+1}/{N}', end='\r')
-
-    # ----------------- save data -------------------
+    # -------------- Clean up data --------------
     data =  data[:-(N-i)] # the last lines contain no useful/realistic data and can be removed
 
+    # ------------ Moment of Inertia ------------
+    calculate_normalised_MoI(data, M_surf, R_surf)
+
+    # ----------------- Save data ---------------
     save_data(data, N, output_name)
     plot_data(data, N, output_name, show_plot=show_plot)
 
@@ -233,11 +235,13 @@ def simulate_analytical(R_surf, M_surf, P_surf, element, N, theta, output_name, 
         if res == False:
             break
 
-        # print(f'{i+1}/{N}', end='\r')
-
-    # ----------------- save data -------------------
+    # -------------- Clean up data --------------
     data =  data[:-(N-i)] # the last lines contain no useful/realistic data and can be removed
 
+    # ------------ Moment of Inertia ------------
+    calculate_normalised_MoI(data, M_surf, R_surf)
+
+    # ----------------- Save data ---------------
     save_data(data, N, output_name)
     plot_data(data, N, output_name, show_plot=show_plot)
 
@@ -384,11 +388,11 @@ def EoS_tabulated_H(P, T, interpolator):
     P_vals = interpolator.grid[1]
 
     if T_query < min(T_vals) or  max(T_vals) < T_query:
-        print(f'T: e^{T_query:.2f} is out of bounds -> cliped to range [e^{min(T_vals)}, e^{max(T_vals)}]')
+        print(f'T: e^{T_query:.3f} is out of bounds -> cliped to range [e^{min(T_vals)}, e^{max(T_vals)}]')
         T_query = np.clip(T_query, min(T_vals), max(T_vals))
 
     if P_query < min(P_vals) or max(P_vals) < P_query:
-        print(f'P: e^{P_query:.2f} is out of bounds -> cliped to range [e^{min(P_vals)}, e^{max(P_vals)}]')
+        print(f'P: e^{P_query:.3f} is out of bounds -> cliped to range [e^{min(P_vals)}, e^{max(P_vals)}]')
         P_query = np.clip(P_query, min(P_vals), max(P_vals))
 
     # interpolate rho
@@ -416,11 +420,11 @@ def EoS_tabulated_H2O(P, T, interpolator):
     P_vals = interpolator.grid[1]
 
     if T_query < min(T_vals) or  max(T_vals) < T_query:
-        print(f'T: {T_query:.2f} is out of bounds -> cliped to range [{min(T_vals)}, {max(T_vals)}]')
+        print(f'T: {T_query:.3f} is out of bounds -> cliped to range [{min(T_vals)}, {max(T_vals)}]')
         T_query = np.clip(T_query, min(T_vals), max(T_vals))
 
     if P_query < min(P_vals) or max(P_vals) < P_query:
-        print(f'P: {P_query:.2f} is out of bounds -> cliped to range [{min(P_vals)}, {max(P_vals)}]')
+        print(f'P: {P_query:.3f} is out of bounds -> cliped to range [{min(P_vals)}, {max(P_vals)}]')
         P_query = np.clip(P_query, min(P_vals), max(P_vals))
 
     # interpolate rho
@@ -485,7 +489,7 @@ def simulate_tabulated(R_surf, M_surf, P_surf, T_surf, element, filename, N, the
     data[0,0] = R_surf
     data[0,1] = M_surf
     data[0,2] = P_surf
-    data[0,4] = T_surf
+    data[0,5] = T_surf
 
     # ------------- run simulation --------------
     print(f'start tabulated {element}')
@@ -497,7 +501,7 @@ def simulate_tabulated(R_surf, M_surf, P_surf, T_surf, element, filename, N, the
 
         m1 = data[i,1] 
         P1 = data[i,2]
-        T1 = data[i,4]
+        T1 = data[i,5]
         
         # ------------------- EoS -------------------
         if element == 'H':
@@ -508,17 +512,16 @@ def simulate_tabulated(R_surf, M_surf, P_surf, T_surf, element, filename, N, the
         
         data[i,3] = rho
         
-        # Calculate derivatives
+        # ---------- Calculate derivatives ----------
         dm_dr = 4 * np.pi * r1**2 * rho
         dP_dr = -G * m1 * rho / r1**2
         
-        # Update values (Euler method)
+        # ------ Update values (Euler method) -------
         dr = r2 - r1
-
         m2 = m1 + dm_dr * dr
         P2 = P1 + dP_dr * dr
         
-        # ---------- find next temperature ----------
+        # ---------- Find next temperature ----------
         if element == 'H':
             P_query = P1 * 1e-10 # dyne/cm^2 -> GPa
             P_query = np.log10(P_query)
@@ -546,7 +549,7 @@ def simulate_tabulated(R_surf, M_surf, P_surf, T_surf, element, filename, N, the
 
         T2 = T1/P1 * (P2 - P1) * grad_ad + T1
 
-        # -------- check if data makes sense --------
+        # -------- Check if data makes sense --------
         if P2 < 0.0 or T2 < 0.0:
             print('>'*25, 'ALERT', '<'*25)
             if P2 < 0.0: print(f'negative pressure at {i+1}/{N}')
@@ -557,20 +560,49 @@ def simulate_tabulated(R_surf, M_surf, P_surf, T_surf, element, filename, N, the
             print(f' aborted at {i+1}/{N}')
             break # abort sim
 
-        # --------- save data for next step ---------
+        # --------- Save data for next step ---------
         if i < len(data)-1:
             data[i+1,0] = r2
             data[i+1,1] = m2
             data[i+1,2] = P2
-            data[i+1,4] = T2
+            data[i+1,5] = T2
 
-    # ----------------- save data -------------------
+    # -------------- Clean up data --------------
     data =  data[:-(N-i)] # the last lines contain no useful/realistic data and can be removed
 
+    # ------------ Moment of Inertia ------------
+    calculate_normalised_MoI(data, M_surf, R_surf)
+
+    # ----------------- Save data ---------------
     save_data(data, N, output_name)
     plot_data(data, N, output_name, show_plot=show_plot)
 
 # ============== helper functions ===============
+def calculate_normalised_MoI(data, M_surf, R_surf):
+    r2 = data[:,0][::-1]
+    m2 = data[:,1][::-1]
+
+    # Create shifted arrays for r1 and m1
+    r1 = np.concatenate([[0], r2[:-1]])
+    m1 = np.concatenate([[0], m2[:-1]])
+
+    # Vectorized calculation of MoI for each shell
+    dm = m2 - m1
+    dr3 = r2**3 - r1**3
+    dr5 = r2**5 - r1**5
+
+    # Avoid division by zero
+    MoI_shells = np.where(dr3 != 0, dm * 2/5 * dr5/dr3, 0)
+
+    # Cumulative sum for total MoI at each radius
+    MoIs = np.cumsum(MoI_shells)
+
+    # Normalize
+    MoIs /= (M_surf * R_surf**2)
+
+    # Save (reverse back to original order)
+    data[:,4] = MoIs[::-1]
+
 def create_grids(R, N, theta):
     # ------------------- r_grid --------------------
     '''
@@ -580,7 +612,7 @@ def create_grids(R, N, theta):
     r_grid = R * (1 - s**theta)    # power-law stretched coordinates
 
     # ---------------- prepare data -----------------
-    data = np.zeros((N+1,5)) # [r, m, p, T, rho]
+    data = np.zeros((N+1,6)) # [r, m, p, rho, moi, T]
     return r_grid, data
 
 def plot_data(data, N, filename, show_plot=False):
@@ -606,7 +638,8 @@ def plot_data(data, N, filename, show_plot=False):
             part = part[0].upper() + part[1:]
         sim_name += part + ' '
 
-    title = f'{planet_name} \u2013 {sim_name}\nN={N_eff}, $\\theta$={theta}'
+    MoI = data[0,4]
+    title = f'{planet_name} \u2013 {sim_name}\nN={N_eff}, $\\theta$={theta}, ' + '$I_\\text{norm}$=' + f'{MoI:.2e}'
 
     # ------------------- plot ------------------
     plt.figure(figsize=(12,8))
@@ -632,13 +665,14 @@ def plot_data(data, N, filename, show_plot=False):
     ax3.set_ylabel('$\\rho$ [g cm$^{-3}$]')
     ax3.set_title('Density')
     ax3.grid(True, alpha=0.3)
-    
-    ax4 = plt.subplot(2, 2, 4, sharex=ax1)
-    ax4.plot(data[:,0], data[:,4], '.-')
-    ax4.set_xlabel('r [cm]')
-    ax4.set_ylabel('T [K]')
-    ax4.set_title('Temperature')
-    ax4.grid(True, alpha=0.3)
+        
+    if data[:,5][-1] != 0:
+        ax4 = plt.subplot(2, 2, 4, sharex=ax1)
+        ax4.plot(data[:,0], data[:,5], '.-')
+        ax4.set_xlabel('r [cm]')
+        ax4.set_ylabel('T [K]')
+        ax4.set_title('Temperature')
+        ax4.grid(True, alpha=0.3)
 
     plt.suptitle(title)
     plt.tight_layout()
@@ -646,9 +680,10 @@ def plot_data(data, N, filename, show_plot=False):
 
     if show_plot:
         plt.show()
+    plt.close()
 
 def save_data(data, N, filename):
-    header = 'r [m], m [kg], p [Pa], rho [kg/m^3], T [K]'
+    header = 'r [m], m [kg], p [Pa], rho [kg/m^3], I_norm [1], T [K]'
     folder_path = os.path.join('data', 'simulation_results', f'N={N}')
     os.makedirs(folder_path, exist_ok=True)
     path = os.path.join(folder_path, f'{filename}.csv')
@@ -657,17 +692,16 @@ def save_data(data, N, filename):
 def simulate_T_independet_part_2(r1, r2, m1, P1, rho, data, i):
     data[i,3] = rho
 
-    # Calculate derivatives
+    # ---------- Calculate derivatives ----------
     dm_dr = 4 * np.pi * r1**2 * rho
     dP_dr = -G * m1 * rho / r1**2
     
-    # Update values (Euler method)
+    # ------ Update values (Euler method) -------
     dr = r2 - r1
-
     m2 = m1 + dm_dr * dr
     P2 = P1 + dP_dr * dr
     
-    # -------- check if data makes sense --------
+    # -------- Check if data makes sense --------
     if P2 < 0.0:
         print('>'*25, 'ALERT', '<'*25)
         print(f'negative pressure at {i+1}/{N}')
@@ -676,7 +710,8 @@ def simulate_T_independet_part_2(r1, r2, m1, P1, rho, data, i):
     if m2 < 0.0:
         print(f' aborted at {i+1}/{N}')
         return False
-
+    
+    # --------- Save data for next step ---------
     if i < len(data)-1:
         data[i+1,0] = r2
         data[i+1,1] = m2
@@ -812,7 +847,6 @@ if __name__ == '__main__':
     # TODO: what is wrong with Silicat (i.e. BME4)?
     # TODO: ideal gas const -> need surface density
     # TODO: RK4
-    # TODO: Moment of inertia
     # TODO: m grid
 
     # ----------- Physical Constants ------------
@@ -820,7 +854,9 @@ if __name__ == '__main__':
     
     C_ideal_gas = 1.96e12 # (cm^2/g)^2 * dyne/cm^2 TODO
 
-    simulate_planet('Earth', [1, 2, 3, 4, 5, 6])
-    simulate_planet('Jupiter', [1, 2, 5, 6])
-    simulate_planet('Saturn', [1, 2, 5, 6])
-    simulate_planet('Uranus', [1, 2, 5, 6])
+    # simulate_planet('Jupiter', [6])
+
+    simulate_planet('Earth',   [1, 2, 3, 4, 5, 6])
+    simulate_planet('Jupiter', [1, 2, 3, 4, 5, 6])
+    simulate_planet('Saturn',  [1, 2, 3, 4, 5, 6])
+    simulate_planet('Uranus',  [1, 2, 3, 4, 5, 6])
