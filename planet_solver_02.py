@@ -254,10 +254,9 @@ def parse_EoS_H(filename, columns):
             rho_3D: 3D matrix [T, P, rho]
             grad_ad_3D: 3D matrix [T, P, grad_ad]
     '''
-    file_name = filename.split('/')[-1]
+    file_name = os.path.basename(filename)
     if 'TABLEEOS_2021' in file_name:
-        file_name = file_name.split('TABLEEOS_2021_')[1]
-        file_name = file_name.split('_v1.csv')[0]
+        file_name = file_name.replace('TABLEEOS_2021_', '').replace('_v1.csv', '')
         
         # Use .npy for fastest I/O
         base_dir = os.path.dirname(filename)
@@ -335,22 +334,46 @@ def parse_EoS_H2O(filename, columns):
             P_vals: needed for interpolator
             rho_3D: 3D matrix [T, P, rho]
             grad_ad_3D: 3D matrix [T, P, grad_ad]
-
     '''
-
-    df = pd.read_csv(filename, skiprows=21, sep='\\s+', names=columns)
-
-    T_vals = sorted(df['temp'].unique())
-    P_vals = sorted(df['press'].unique())
-    rho_3D = np.zeros((len(T_vals), len(P_vals)))
-    grad_ad_3D = np.zeros((len(T_vals), len(P_vals)))
     
-    for i, T in enumerate(T_vals):
-        for j, P in enumerate(P_vals):
-            mask = (df['temp'] == T) & (df['press'] == P)
-            if mask.any():
-                rho_3D[i, j] = df.loc[mask, 'rho'].values[0]
-                grad_ad_3D[i, j] = df.loc[mask, 'ad_grad'].values[0]
+    # Setup cache paths
+    file_name = os.path.basename(filename)
+    file_name = file_name.replace('aqua_eos_', '').replace('_v1_0.dat', '')
+    base_dir = os.path.dirname(filename)
+    rho_matrix_path = os.path.join(base_dir, f'rho_matrix_{file_name}.npy')
+    grad_ad_matrix_path = os.path.join(base_dir, f'grad_ad_matrix_{file_name}.npy')
+    meta_path = os.path.join(base_dir, f'meta_{file_name}.npz')
+    
+    # Check if cached files exist
+    if os.path.isfile(rho_matrix_path) and os.path.isfile(grad_ad_matrix_path) and os.path.isfile(meta_path):
+        # READ FROM CACHE
+        rho_3D = np.load(rho_matrix_path)
+        grad_ad_3D = np.load(grad_ad_matrix_path)
+        meta = np.load(meta_path)
+        T_vals = meta['T_vals'].tolist()
+        P_vals = meta['P_vals'].tolist()
+        
+    else:
+        # PARSE AND CREATE CACHE
+        df = pd.read_csv(filename, skiprows=21, sep='\\s+', names=columns)
+        
+        # Sort once and use pivot for efficiency
+        df = df.sort_values(['temp', 'press'])
+        T_vals = sorted(df['temp'].unique())
+        P_vals = sorted(df['press'].unique())
+        
+        # Use pivot_table for fast matrix creation (much faster than loops)
+        rho_pivot = df.pivot_table(values='rho', index='temp', columns='press', aggfunc='first')
+        grad_ad_pivot = df.pivot_table(values='ad_grad', index='temp', columns='press', aggfunc='first')
+        
+        # Ensure correct ordering and convert to numpy arrays
+        rho_3D = rho_pivot.reindex(index=T_vals, columns=P_vals).values
+        grad_ad_3D = grad_ad_pivot.reindex(index=T_vals, columns=P_vals).values
+        
+        # SAVE TO CACHE
+        np.save(rho_matrix_path, rho_3D)
+        np.save(grad_ad_matrix_path, grad_ad_3D)
+        np.savez(meta_path, T_vals=np.array(T_vals), P_vals=np.array(P_vals))
     
     return T_vals, P_vals, rho_3D, grad_ad_3D
 
@@ -744,7 +767,6 @@ if __name__ == '__main__':
     N = 100
     theta = 5
 
-    # TODO: 3D matrix for H and H2O in file
     # TODO: ideal gas const -> need surface density
     # TODO: RK4
     # TODO: Moment of inertia
