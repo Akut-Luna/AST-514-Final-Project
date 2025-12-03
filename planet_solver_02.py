@@ -50,37 +50,15 @@ def simulate_ideal_gas(R_surf, M_surf, P_surf, N, theta, output_name, show_plot=
         P1 = data[i,2]
         
         # ------------------- EoS -------------------
-        rho = EoS_ideal_gas(P1, C_ideal_gas) # TODO
+        rho = EoS_ideal_gas(P1, C_ideal_gas)
         # -------------------------------------------
 
-        data[i,3] = rho
-
-        # Calculate derivatives
-        dm_dr = 4 * np.pi * r1**2 * rho
-        dP_dr = -G * m1 * rho / r1**2
-        
-        # Update values (Euler method) TODO: RK4?
-        dr = r2 - r1
-
-        m2 = m1 + dm_dr * dr
-        P2 = P1 + dP_dr * dr
-        
-        # -------- check if data makes sense --------
-        if P2 < 0.0:
-            print('>'*25, 'ALERT', '<'*25)
-            print(f'negative pressure at {i+1}/{N}')
+        res = simulate_T_independet_part_2(r1, r2, m1, P1, rho, data, i)
+        if res == False:
             break
 
-        if m2 < 0.0:
-            print(f'aborted at {i+1}/{N}')
-            break # abort sim
-
-        if i < len(data)-1:
-            data[i+1,0] = r2
-            data[i+1,1] = m2
-            data[i+1,2] = P2
-
         # print(f'{i+1}/{N}', end='\r')
+        
 
     # ----------------- save data -------------------
     
@@ -136,32 +114,9 @@ def simulate_polytropic(R_surf, M_surf, P_surf, N, theta, output_name, show_plot
         rho = EoS_polytropic(P1)
         # -------------------------------------------
         
-        data[i,3] = rho
-        
-        # Calculate derivatives
-        dm_dr = 4 * np.pi * r1**2 * rho
-        dP_dr = -G * m1 * rho / r1**2
-        
-        # Update values (Euler method) TODO: RK4?
-        dr = r2 - r1
-
-        m2 = m1 + dm_dr * dr
-        P2 = P1 + dP_dr * dr
-        
-        # -------- check if data makes sense --------
-        if P2 < 0.0:
-            print('>'*25, 'ALERT', '<'*25)
-            print(f'negative pressure at {i+1}/{N}')
+        res = simulate_T_independet_part_2(r1, r2, m1, P1, rho, data, i)
+        if res == False:
             break
-
-        if m2 < 0.0:
-            print(f'aborted at {i+1}/{N}')
-            break # abort sim
-
-        if i < len(data)-1:
-            data[i+1,0] = r2
-            data[i+1,1] = m2
-            data[i+1,2] = P2
 
         # print(f'{i+1}/{N}', end='\r')
 
@@ -273,32 +228,9 @@ def simulate_analytical(R_surf, M_surf, P_surf, element, N, theta, output_name, 
             rho = EoS_analytical_MgSiO3(P1, df)
         # -------------------------------------------
         
-        data[i,3] = rho
-        
-        # Calculate derivatives
-        dm_dr = 4 * np.pi * r1**2 * rho
-        dP_dr = -G * m1 * rho / r1**2
-        
-        # Update values (Euler method) TODO: RK4?
-        dr = r2 - r1
-
-        m2 = m1 + dm_dr * dr
-        P2 = P1 + dP_dr * dr
-        
-        # -------- check if data makes sense --------
-        if P2 < 0.0:
-            print('>'*25, 'ALERT', '<'*25)
-            print(f'negative pressure at {i+1}/{N}')
+        res = simulate_T_independet_part_2(r1, r2, m1, P1, rho, data, i)
+        if res == False:
             break
-
-        if m2 < 0.0:
-            print(f'aborted at {i+1}/{N}')
-            break # abort sim
-
-        if i < len(data)-1:
-            data[i+1,0] = r2
-            data[i+1,1] = m2
-            data[i+1,2] = P2
 
         # print(f'{i+1}/{N}', end='\r')
 
@@ -517,7 +449,7 @@ def simulate_tabulated(R_surf, M_surf, P_surf, T_surf, element, filename, N, the
         dm_dr = 4 * np.pi * r1**2 * rho
         dP_dr = -G * m1 * rho / r1**2
         
-        # Update values (Euler method) TODO: RK4?
+        # Update values (Euler method)
         dr = r2 - r1
 
         m2 = m1 + dm_dr * dr
@@ -627,15 +559,45 @@ def plot_data(data, filename, show_plot=False):
         plt.show()
 
 def save_data(data, filename):
-    header = 'r [m], m [kg], p [Pa], T [K], rho [kg/m^3]'
+    header = 'r [m], m [kg], p [Pa], rho [kg/m^3], T [K]'
     np.savetxt(f'data/{filename}.csv', data, delimiter=',', header=header)
+
+def simulate_T_independet_part_2(r1, r2, m1, P1, rho, data, i):
+    data[i,3] = rho
+
+    # Calculate derivatives
+    dm_dr = 4 * np.pi * r1**2 * rho
+    dP_dr = -G * m1 * rho / r1**2
+    
+    # Update values (Euler method)
+    dr = r2 - r1
+
+    m2 = m1 + dm_dr * dr
+    P2 = P1 + dP_dr * dr
+    
+    # -------- check if data makes sense --------
+    if P2 < 0.0:
+        print('>'*25, 'ALERT', '<'*25)
+        print(f'negative pressure at {i+1}/{N}')
+        return False
+
+    if m2 < 0.0:
+        print(f'aborted at {i+1}/{N}')
+        return False
+
+    if i < len(data)-1:
+        data[i+1,0] = r2
+        data[i+1,1] = m2
+        data[i+1,2] = P2
+
+    return True
 
 if __name__ == '__main__':
     N = 100
     theta = 5
 
     # TODO: 3D matrix for H and H2O in file
-    # TODO: ideal gas const
+    # TODO: ideal gas const -> need surface density
     # TODO: RK4
 
     # ----------- Physical Constants ------------
@@ -687,47 +649,28 @@ if __name__ == '__main__':
         output_name='04_analytical_MgSiO3_Jupiter'
     )
 
-    simulate_tabulated(
-        R_Jupiter, 
-        M_Jupiter,
-        P_surface_Jupiter,
-        T_surface_Jupiter,
-        element='H',
-        filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv',
-        N=N,
-        theta=theta,
-        output_name='05_tabulated_H_Jupiter'
-    )
+    # simulate_tabulated(
+    #     R_Jupiter, 
+    #     M_Jupiter,
+    #     P_surface_Jupiter,
+    #     T_surface_Jupiter,
+    #     element='H',
+    #     filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv',
+    #     N=N,
+    #     theta=theta,
+    #     output_name='05_tabulated_H_Jupiter'
+    # )
 
-    simulate_tabulated(
-        R_Jupiter, 
-        M_Jupiter,
-        P_surface_Jupiter,
-        T_surface_Jupiter,
-        element='H2O',
-        filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
-        N=N,
-        theta=theta,
-        output_name='06_tabulated_H2O_Jupiter'
-    )
+    # simulate_tabulated(
+    #     R_Jupiter, 
+    #     M_Jupiter,
+    #     P_surface_Jupiter,
+    #     T_surface_Jupiter,
+    #     element='H2O',
+    #     filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
+    #     N=N,
+    #     theta=theta,
+    #     output_name='06_tabulated_H2O_Jupiter'
+    # )
 
     # plt.show()
-
-    # # ------------------ constants ------------------
-    # M_mole =  1.008 # g/mole (monoatomic H)
-    # M_mole =  2.22   # g/mole https://radiojove.gsfc.nasa.gov/education/educationalcd/Posters&Fliers/FactSheets/JupiterFactSheet.pdf
-    # R = 8.31434e7   # erg / (K * mole)
-    # G = 6.67430e-8  # dyn cm^2 / g^2
-
-    # # ------------- convert to cgs --------------
-    # R_mean_cgs = R * 1e5     # cm
-    # T_surface_cgs = T        # K
-    # P_surface_cgs = P * 1e6  # dyn/cm^2
-    # M_cgs = M * 1000         # g
-
-    # # 1 bar = 10⁶ dyne/cm² = 10⁶ barye
-    # # [C] = (10^6 barye)^{-2/3} * K^{5/3}
-    # # [C] = 10^{-4} * barye^{-2/3} * K^{5/3}
-    # # [C] = 10^{-4} * (dyne/cm^2)^{-2/3} * K^{5/3}
-    # C_cgs = P_surface_cgs**(1-gamma) * T_surface_cgs**gamma # (dyn * K)/cm^2
-    # print(C_cgs)
