@@ -65,8 +65,8 @@ def simulate_ideal_gas(R_surf, M_surf, P_surf, N, theta, output_name, show_plot=
     
     data =  data[:-(N-i)] # the last lines contain no useful/realistic data and can be removed
 
-    save_data(data, output_name)
-    plot_data(data, output_name, show_plot=show_plot)
+    save_data(data, N, output_name)
+    plot_data(data, N, output_name, show_plot=show_plot)
 
 # ================== polytropic =================
 def EoS_polytropic(P):
@@ -124,8 +124,8 @@ def simulate_polytropic(R_surf, M_surf, P_surf, N, theta, output_name, show_plot
     # ----------------- save data -------------------
     data =  data[:-(N-i)] # the last lines contain no useful/realistic data and can be removed
 
-    save_data(data, output_name)
-    plot_data(data, output_name, show_plot=show_plot)
+    save_data(data, N, output_name)
+    plot_data(data, N, output_name, show_plot=show_plot)
 
 # ================== analytical =================
 def EoS_analytical_Fe(P, df):
@@ -238,8 +238,8 @@ def simulate_analytical(R_surf, M_surf, P_surf, element, N, theta, output_name, 
     # ----------------- save data -------------------
     data =  data[:-(N-i)] # the last lines contain no useful/realistic data and can be removed
 
-    save_data(data, output_name)
-    plot_data(data, output_name, show_plot=show_plot)
+    save_data(data, N, output_name)
+    plot_data(data, N, output_name, show_plot=show_plot)
 
 # ================== tabulated ==================
 def parse_EoS_H(filename, columns):
@@ -273,52 +273,41 @@ def parse_EoS_H(filename, columns):
             P_vals = meta['P_vals'].tolist()
             
         else:  # write files
-            blocks = {}
+            # Read all data into one DataFrame
+            all_data = []
             current_temp = None
-            current_data = []
             
             with open(filename, 'r') as f:
                 for line in f:
-                    # Check if line is a temperature header
                     if line.strip().startswith('#iT='):
-                        # Save previous block if exists
-                        if current_temp is not None and current_data:
-                            blocks[current_temp] = pd.DataFrame(current_data, columns=columns)
-                            current_data = []
-                        
-                        # Extract temperature from header
                         current_temp = float(line.split(' T= ')[1])
-                    
-                    # Skip comment lines
                     elif line.strip().startswith('#'):
                         continue
-
-                    # Read data
-                    elif line.strip():
+                    elif line.strip() and current_temp is not None:
                         values = [float(x) for x in line.split()]
-                        current_data.append(values)
-                
-                # Save last block
-                if current_temp is not None and current_data:
-                    blocks[current_temp] = pd.DataFrame(current_data, columns=columns)
+                        values.insert(0, current_temp)  # Add temperature as first column
+                        all_data.append(values)
             
-            # Convert to 3D arrays
-            T_vals = sorted(blocks.keys())
-            P_vals = sorted(blocks[T_vals[0]]['log_P'].unique())
-            rho_3D = np.zeros((len(T_vals), len(P_vals)))
-            grad_ad_3D = np.zeros((len(T_vals), len(P_vals)))
+            # Create DataFrame with temperature column
+            df = pd.DataFrame(all_data, columns=['temp'] + columns)
             
-            for i, T in enumerate(T_vals):
-                for j, P in enumerate(P_vals):
-                    rho_3D[i, j] = blocks[T][blocks[T]['log_P'] == P]['log_rho'].values[0]
-                    grad_ad_3D[i, j] = blocks[T][blocks[T]['log_P'] == P]['grad_ad'].values[0]
+            # Use pivot_table for fast matrix creation
+            T_vals = sorted(df['temp'].unique())
+            P_vals = sorted(df['log_P'].unique())
+            
+            rho_pivot = df.pivot_table(values='log_rho', index='temp', columns='log_P', aggfunc='first')
+            grad_ad_pivot = df.pivot_table(values='grad_ad', index='temp', columns='log_P', aggfunc='first')
+            
+            # Convert to numpy arrays with correct ordering
+            rho_3D = rho_pivot.reindex(index=T_vals, columns=P_vals).values
+            grad_ad_3D = grad_ad_pivot.reindex(index=T_vals, columns=P_vals).values
             
             # WRITE FILES (very fast with .npy)
             np.save(rho_matrix_path, rho_3D)
             np.save(grad_ad_matrix_path, grad_ad_3D)
             np.savez(meta_path, T_vals=np.array(T_vals), P_vals=np.array(P_vals))
     else:
-        print(f'invalid file: {file_name}. Use on of the TABLEEOS_2021... files.')
+        print(f'invalid file: {file_name}. Use one of the TABLEEOS_2021... files.')
         return
 
     return T_vals, P_vals, rho_3D, grad_ad_3D
@@ -391,6 +380,17 @@ def EoS_tabulated_H(P, T, interpolator):
     P_query = np.log10(P_query)
     T_query = np.log10(T) # K
 
+    T_vals = interpolator.grid[0]
+    P_vals = interpolator.grid[1]
+
+    if T_query < min(T_vals) or  max(T_vals) < T_query:
+        print(f'T: e^{T_query:.2f} is out of bounds -> cliped to range [e^{min(T_vals)}, e^{max(T_vals)}]')
+        T_query = np.clip(T_query, min(T_vals), max(T_vals))
+
+    if P_query < min(P_vals) or max(P_vals) < P_query:
+        print(f'P: e^{P_query:.2f} is out of bounds -> cliped to range [e^{min(P_vals)}, e^{max(P_vals)}]')
+        P_query = np.clip(P_query, min(P_vals), max(P_vals))
+
     # interpolate rho
     log_rho = interpolator([T_query, P_query])[0]
 
@@ -412,6 +412,17 @@ def EoS_tabulated_H2O(P, T, interpolator):
     P_query = P * 0.1 # dyne/cm^2 -> Pa
     T_query = T # K
     
+    T_vals = interpolator.grid[0]
+    P_vals = interpolator.grid[1]
+
+    if T_query < min(T_vals) or  max(T_vals) < T_query:
+        print(f'T: {T_query:.2f} is out of bounds -> cliped to range [{min(T_vals)}, {max(T_vals)}]')
+        T_query = np.clip(T_query, min(T_vals), max(T_vals))
+
+    if P_query < min(P_vals) or max(P_vals) < P_query:
+        print(f'P: {P_query:.2f} is out of bounds -> cliped to range [{min(P_vals)}, {max(P_vals)}]')
+        P_query = np.clip(P_query, min(P_vals), max(P_vals))
+
     # interpolate rho
     rho = interpolator([T_query, P_query])[0]
 
@@ -513,11 +524,23 @@ def simulate_tabulated(R_surf, M_surf, P_surf, T_surf, element, filename, N, the
             P_query = np.log10(P_query)
             T_query = np.log10(T1) # K
 
+            if T_query < min(T_vals) or  max(T_vals) < T_query:
+                T_query = np.clip(T_query, min(T_vals), max(T_vals))
+
+            if P_query < min(P_vals) or max(P_vals) < P_query:
+                P_query = np.clip(P_query, min(P_vals), max(P_vals))
+
             grad_ad = interpolator_grad_ad([T_query, P_query])[0]
 
         elif element == 'H2O':
             P_query = P1 * 0.1 # dyne/cm^2 -> Pa
             T_query = T1 # K
+
+            if T_query < min(T_vals) or  max(T_vals) < T_query:
+                T_query = np.clip(T_query, min(T_vals), max(T_vals))
+
+            if P_query < min(P_vals) or max(P_vals) < P_query:
+                P_query = np.clip(P_query, min(P_vals), max(P_vals))
 
             grad_ad = interpolator_grad_ad([T_query, P_query])[0]
 
@@ -531,7 +554,7 @@ def simulate_tabulated(R_surf, M_surf, P_surf, T_surf, element, filename, N, the
             break
             
         if m2 < 0.0:
-            print(f'aborted at {i+1}/{N}')
+            print(f' aborted at {i+1}/{N}')
             break # abort sim
 
         # --------- save data for next step ---------
@@ -544,8 +567,8 @@ def simulate_tabulated(R_surf, M_surf, P_surf, T_surf, element, filename, N, the
     # ----------------- save data -------------------
     data =  data[:-(N-i)] # the last lines contain no useful/realistic data and can be removed
 
-    save_data(data, output_name)
-    plot_data(data, output_name, show_plot=show_plot)
+    save_data(data, N, output_name)
+    plot_data(data, N, output_name, show_plot=show_plot)
 
 # ============== helper functions ===============
 def create_grids(R, N, theta):
@@ -560,18 +583,35 @@ def create_grids(R, N, theta):
     data = np.zeros((N+1,5)) # [r, m, p, T, rho]
     return r_grid, data
 
-def plot_data(data, filename, show_plot=False):
+def plot_data(data, N, filename, show_plot=False):
+
+    # ------------------ path -------------------
+    folder_path = os.path.join('plots', f'N={N}')
+    os.makedirs(folder_path, exist_ok=True)
+    file_path = os.path.join(folder_path, f'{filename}.pdf')
+
+    # ------------------ title ------------------
     name_parts = filename.split('_')
-    title = ''
-    for part in name_parts[1:]:
+    planet_name = name_parts[0]
+    N_eff = len(data[:,0])
+    theta = float(name_parts[-1].replace('.csv', ''))
+    if theta.is_integer():
+        theta = int(theta)
+
+    sim_name = ''
+    for part in name_parts[2:-4]:
         if part == 'MgSiO3':
             part = 'MgSiO$_3$'
-        title += part + ' '
+        if part and part[0].islower():
+            part = part[0].upper() + part[1:]
+        sim_name += part + ' '
 
+    title = f'{planet_name} \u2013 {sim_name}\nN={N_eff}, $\\theta$={theta}'
+
+    # ------------------- plot ------------------
     plt.figure(figsize=(12,8))
     ax1 = plt.subplot(2, 2, 1)
     ax1.plot(data[:,0], data[:,1], '.-')
-    # ax1.set_yscale('log')
     ax1.set_xlabel('r [cm]')
     ax1.set_ylabel('m [g]')
     ax1.set_title('Mass')
@@ -595,7 +635,6 @@ def plot_data(data, filename, show_plot=False):
     
     ax4 = plt.subplot(2, 2, 4, sharex=ax1)
     ax4.plot(data[:,0], data[:,4], '.-')
-    # ax4.set_yscale('log')
     ax4.set_xlabel('r [cm]')
     ax4.set_ylabel('T [K]')
     ax4.set_title('Temperature')
@@ -603,14 +642,17 @@ def plot_data(data, filename, show_plot=False):
 
     plt.suptitle(title)
     plt.tight_layout()
-    plt.savefig(f'plots/{filename}.pdf')
+    plt.savefig(file_path)
 
     if show_plot:
         plt.show()
 
-def save_data(data, filename):
+def save_data(data, N, filename):
     header = 'r [m], m [kg], p [Pa], rho [kg/m^3], T [K]'
-    np.savetxt(f'data/{filename}.csv', data, delimiter=',', header=header)
+    folder_path = os.path.join('data', 'simulation_results', f'N={N}')
+    os.makedirs(folder_path, exist_ok=True)
+    path = os.path.join(folder_path, f'{filename}.csv')
+    np.savetxt(path, data, delimiter=',', header=header)
 
 def simulate_T_independet_part_2(r1, r2, m1, P1, rho, data, i):
     data[i,3] = rho
@@ -632,7 +674,7 @@ def simulate_T_independet_part_2(r1, r2, m1, P1, rho, data, i):
         return False
 
     if m2 < 0.0:
-        print(f'aborted at {i+1}/{N}')
+        print(f' aborted at {i+1}/{N}')
         return False
 
     if i < len(data)-1:
@@ -659,31 +701,30 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0):
             T_surface: [K] surface temperature
     '''
 
-    
     # ----------- boundary conditions -----------
     if planet == 'Jupiter':
-        R = 6.9911e9            # cm
-        M = 1.898e30            # g
-        P_surface = 1e6         # dyne/cm^2
-        T_surface = 165         # K
+        R = 6.9911e9        # cm
+        M = 1.898e30        # g
+        P_surface = 1e6     # dyne/cm^2 = 1 Bar
+        T_surface = 165     # K
 
     elif planet == 'Saturn':
-        R = 5.8232e9            # cm
-        M = 5.6836e29           # g
-        P_surface = 1e6         # dyne/cm^2
-        T_surface = 134         # K
+        R = 5.8232e9        # cm
+        M = 5.6836e29       # g
+        P_surface = 1e6     # dyne/cm^2 = 1 Bar
+        T_surface = 134     # K
 
     elif planet == 'Uranus':
-        R = 2.5362e9            # cm    https://doi.org/10.1007%2Fs10569-007-9072-y
-        M = 8.681e+28           # g     https://doi.org/10.1086%2F116211
-        P_surface = 1e6         # dyne/cm^2
-        T_surface = 76          # K     https://doi.org/10.1016%2F0032-0633%2895%2900061-5
+        R = 2.5362e9        # cm        https://doi.org/10.1007%2Fs10569-007-9072-y
+        M = 8.681e+28       # g         https://doi.org/10.1086%2F116211
+        P_surface = 1e6     # dyne/cm^2 = 1 Bar
+        T_surface = 76      # K         https://doi.org/10.1016%2F0032-0633%2895%2900061-5
 
-    # elif planet == 'Earth':
-    #     R =             # cm    
-    #     M =           # g     
-    #     P_surface = 1e6         # dyne/cm^2
-    #     T_surface =           # K     
+    elif planet == 'Earth':
+        R = 6.371e8         # cm    
+        M = 5.972e27        # g     
+        P_surface = 1e6     # dyne/cm^2 = 1 Bar
+        T_surface = 288     # K     
 
     if R == 0 or M == 0 or P_surface == 0:
         print('invalid boundary conditions')
@@ -694,6 +735,7 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0):
         return
 
     # --------------- simulations ---------------
+    print('\n'+('='*10), planet, '='*10)
     if 1 in EoS:
         simulate_ideal_gas(
             R, 
@@ -767,14 +809,18 @@ if __name__ == '__main__':
     N = 100
     theta = 5
 
+    # TODO: what is wrong with Silicat (i.e. BME4)?
     # TODO: ideal gas const -> need surface density
     # TODO: RK4
     # TODO: Moment of inertia
-    # TODO: different Planets
+    # TODO: m grid
 
     # ----------- Physical Constants ------------
     G = 6.67430e-8  # cm^3 g^-1 s^-2
     
     C_ideal_gas = 1.96e12 # (cm^2/g)^2 * dyne/cm^2 TODO
 
+    simulate_planet('Earth', [1, 2, 3, 4, 5, 6])
+    simulate_planet('Jupiter', [1, 2, 5, 6])
     simulate_planet('Saturn', [1, 2, 5, 6])
+    simulate_planet('Uranus', [1, 2, 5, 6])
