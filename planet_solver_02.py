@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -253,46 +254,74 @@ def parse_EoS_H(filename, columns):
             rho_3D: 3D matrix [T, P, rho]
             grad_ad_3D: 3D matrix [T, P, grad_ad]
     '''
-    blocks = {}
-    current_temp = None
-    current_data = []
-    
-    with open(filename, 'r') as f:
-        for line in f:
-            # Check if line is a temperature header
-            if line.strip().startswith('#iT='):
-                # Save previous block if exists
+    file_name = filename.split('/')[-1]
+    if 'TABLEEOS_2021' in file_name:
+        file_name = file_name.split('TABLEEOS_2021_')[1]
+        file_name = file_name.split('_v1.csv')[0]
+        
+        # Use .npy for fastest I/O
+        base_dir = os.path.dirname(filename)
+        rho_matrix_path = os.path.join(base_dir, f'rho_matrix_{file_name}.npy')
+        grad_ad_matrix_path = os.path.join(base_dir, f'grad_ad_matrix_{file_name}.npy')
+        meta_path = os.path.join(base_dir, f'meta_{file_name}.npz')
+
+        if os.path.isfile(rho_matrix_path) and os.path.isfile(grad_ad_matrix_path) and os.path.isfile(meta_path):
+            # READ FILES (very fast with .npy)
+            rho_3D = np.load(rho_matrix_path)
+            grad_ad_3D = np.load(grad_ad_matrix_path)
+            meta = np.load(meta_path)
+            T_vals = meta['T_vals'].tolist()
+            P_vals = meta['P_vals'].tolist()
+            
+        else:  # write files
+            blocks = {}
+            current_temp = None
+            current_data = []
+            
+            with open(filename, 'r') as f:
+                for line in f:
+                    # Check if line is a temperature header
+                    if line.strip().startswith('#iT='):
+                        # Save previous block if exists
+                        if current_temp is not None and current_data:
+                            blocks[current_temp] = pd.DataFrame(current_data, columns=columns)
+                            current_data = []
+                        
+                        # Extract temperature from header
+                        current_temp = float(line.split(' T= ')[1])
+                    
+                    # Skip comment lines
+                    elif line.strip().startswith('#'):
+                        continue
+
+                    # Read data
+                    elif line.strip():
+                        values = [float(x) for x in line.split()]
+                        current_data.append(values)
+                
+                # Save last block
                 if current_temp is not None and current_data:
                     blocks[current_temp] = pd.DataFrame(current_data, columns=columns)
-                    current_data = []
-                
-                # Extract temperature from header
-                current_temp = float(line.split(' T= ')[1])
             
-            # Skip comment lines
-            elif line.strip().startswith('#'):
-                continue
+            # Convert to 3D arrays
+            T_vals = sorted(blocks.keys())
+            P_vals = sorted(blocks[T_vals[0]]['log_P'].unique())
+            rho_3D = np.zeros((len(T_vals), len(P_vals)))
+            grad_ad_3D = np.zeros((len(T_vals), len(P_vals)))
+            
+            for i, T in enumerate(T_vals):
+                for j, P in enumerate(P_vals):
+                    rho_3D[i, j] = blocks[T][blocks[T]['log_P'] == P]['log_rho'].values[0]
+                    grad_ad_3D[i, j] = blocks[T][blocks[T]['log_P'] == P]['grad_ad'].values[0]
+            
+            # WRITE FILES (very fast with .npy)
+            np.save(rho_matrix_path, rho_3D)
+            np.save(grad_ad_matrix_path, grad_ad_3D)
+            np.savez(meta_path, T_vals=np.array(T_vals), P_vals=np.array(P_vals))
+    else:
+        print(f'invalid file: {file_name}. Use on of the TABLEEOS_2021... files.')
+        return
 
-            # Read data
-            elif line.strip():
-                values = [float(x) for x in line.split()]
-                current_data.append(values)
-        
-        # Save last block
-        if current_temp is not None and current_data:
-            blocks[current_temp] = pd.DataFrame(current_data, columns=columns)
-    
-    # Convert to 3D arrays
-    T_vals = sorted(blocks.keys())
-    P_vals = sorted(blocks[T_vals[0]]['log_P'].unique())
-    rho_3D = np.zeros((len(T_vals), len(P_vals)))
-    grad_ad_3D = np.zeros((len(T_vals), len(P_vals)))
-    
-    for i, T in enumerate(T_vals):
-        for j, P in enumerate(P_vals):
-            rho_3D[i, j] = blocks[T][blocks[T]['log_P'] == P]['log_rho'].values[0]
-            grad_ad_3D[i, j] = blocks[T][blocks[T]['log_P'] == P]['grad_ad'].values[0]
-    
     return T_vals, P_vals, rho_3D, grad_ad_3D
 
 def parse_EoS_H2O(filename, columns):
@@ -489,8 +518,6 @@ def simulate_tabulated(R_surf, M_surf, P_surf, T_surf, element, filename, N, the
             data[i+1,2] = P2
             data[i+1,4] = T2
 
-        print(f'{i+1}/{N}')
-
     # ----------------- save data -------------------
     data =  data[:-(N-i)] # the last lines contain no useful/realistic data and can be removed
 
@@ -592,6 +619,127 @@ def simulate_T_independet_part_2(r1, r2, m1, P1, rho, data, i):
 
     return True
 
+def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0):
+    '''
+        Parameters:
+            planet: name (Earth, Jupiter, Saturn and Uranus don't require parameters)
+            EoS: list of int representing the Simulations that should be done.
+                1: ideal gas
+                2: polytropic
+                3: analytical Fe
+                4: analytical MgSiO3
+                5: tabulated H
+                6: tabulated H2O
+            R: [cm] mean radius
+            M: [g] mass
+            P_surface: [dyne/cm^2] surface pressure
+            T_surface: [K] surface temperature
+    '''
+
+    
+    # ----------- boundary conditions -----------
+    if planet == 'Jupiter':
+        R = 6.9911e9            # cm
+        M = 1.898e30            # g
+        P_surface = 1e6         # dyne/cm^2
+        T_surface = 165         # K
+
+    elif planet == 'Saturn':
+        R = 5.8232e9            # cm
+        M = 5.6836e29           # g
+        P_surface = 1e6         # dyne/cm^2
+        T_surface = 134         # K
+
+    elif planet == 'Uranus':
+        R = 2.5362e9            # cm    https://doi.org/10.1007%2Fs10569-007-9072-y
+        M = 8.681e+28           # g     https://doi.org/10.1086%2F116211
+        P_surface = 1e6         # dyne/cm^2
+        T_surface = 76          # K     https://doi.org/10.1016%2F0032-0633%2895%2900061-5
+
+    # elif planet == 'Earth':
+    #     R =             # cm    
+    #     M =           # g     
+    #     P_surface = 1e6         # dyne/cm^2
+    #     T_surface =           # K     
+
+    if R == 0 or M == 0 or P_surface == 0:
+        print('invalid boundary conditions')
+        return
+    
+    if (5 in EoS or 6 in EoS) and T_surface == 0:
+        print('invalid boundary conditions')
+        return
+
+    # --------------- simulations ---------------
+    if 1 in EoS:
+        simulate_ideal_gas(
+            R, 
+            M,
+            P_surface,
+            N=N,
+            theta=theta,
+            output_name=f'{planet}_01_ideal_gas_N_{N}_theta_{theta}'
+        )
+        
+    if 2 in EoS:
+        simulate_polytropic(
+            R, 
+            M,
+            P_surface,
+            N=N,
+            theta=theta,
+            output_name=f'{planet}_02_polytropic_N_{N}_theta_{theta}'
+        )
+
+    if 3 in EoS:
+        simulate_analytical(
+            R, 
+            M,
+            P_surface,
+            element='Fe',
+            N=N,
+            theta=theta,
+            output_name=f'{planet}_03_analytical_Fe_N_{N}_theta_{theta}'
+        )
+
+    if 4 in EoS:
+        simulate_analytical(
+            R, 
+            M,
+            P_surface,
+            element='MgSiO3',
+            N=N,
+            theta=theta,
+            output_name=f'{planet}_04_analytical_MgSiO3_N_{N}_theta_{theta}'
+        )
+
+    if 5 in EoS:
+        simulate_tabulated(
+            R, 
+            M,
+            P_surface,
+            T_surface,
+            element='H',
+            filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv',
+            N=N,
+            theta=theta,
+            output_name=f'{planet}_05_tabulated_H_N_{N}_theta_{theta}'
+        )
+
+    if 6 in EoS:
+        simulate_tabulated(
+            R, 
+            M,
+            P_surface,
+            T_surface,
+            element='H2O',
+            filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
+            N=N,
+            theta=theta,
+            output_name=f'{planet}_06_tabulated_H2O_N_{N}_theta_{theta}'
+        )
+
+# plt.show()
 if __name__ == '__main__':
     N = 100
     theta = 5
@@ -599,78 +747,12 @@ if __name__ == '__main__':
     # TODO: 3D matrix for H and H2O in file
     # TODO: ideal gas const -> need surface density
     # TODO: RK4
+    # TODO: Moment of inertia
+    # TODO: different Planets
 
     # ----------- Physical Constants ------------
     G = 6.67430e-8  # cm^3 g^-1 s^-2
     
     C_ideal_gas = 1.96e12 # (cm^2/g)^2 * dyne/cm^2 TODO
 
-    # ----------- boundary conditions -----------
-    R_Jupiter = 6.9911e9            # cm
-    M_Jupiter = 1.898e30            # g
-    P_surface_Jupiter = 1e6         # dyne/cm^2
-    T_surface_Jupiter = 165         # K
-
-    simulate_ideal_gas(
-        R_Jupiter, 
-        M_Jupiter,
-        P_surface_Jupiter,
-        N=N,
-        theta=theta,
-        output_name='01_ideal_gas_Jupiter'
-    )
-    
-    simulate_polytropic(
-        R_Jupiter, 
-        M_Jupiter,
-        P_surface_Jupiter,
-        N=N,
-        theta=theta,
-        output_name='02_polytropic_Jupiter'
-    )
-
-    simulate_analytical(
-        R_Jupiter, 
-        M_Jupiter,
-        P_surface_Jupiter,
-        element='Fe',
-        N=N,
-        theta=theta,
-        output_name='03_analytical_Fe_Jupiter'
-    )
-
-    simulate_analytical(
-        R_Jupiter, 
-        M_Jupiter,
-        P_surface_Jupiter,
-        element='MgSiO3',
-        N=N,
-        theta=theta,
-        output_name='04_analytical_MgSiO3_Jupiter'
-    )
-
-    # simulate_tabulated(
-    #     R_Jupiter, 
-    #     M_Jupiter,
-    #     P_surface_Jupiter,
-    #     T_surface_Jupiter,
-    #     element='H',
-    #     filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv',
-    #     N=N,
-    #     theta=theta,
-    #     output_name='05_tabulated_H_Jupiter'
-    # )
-
-    # simulate_tabulated(
-    #     R_Jupiter, 
-    #     M_Jupiter,
-    #     P_surface_Jupiter,
-    #     T_surface_Jupiter,
-    #     element='H2O',
-    #     filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
-    #     N=N,
-    #     theta=theta,
-    #     output_name='06_tabulated_H2O_Jupiter'
-    # )
-
-    # plt.show()
+    simulate_planet('Saturn', [1, 2, 5, 6])
