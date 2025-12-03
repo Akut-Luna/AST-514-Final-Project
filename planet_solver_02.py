@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy.interpolate import RegularGridInterpolator
 
 # ================== ideal gas ==================
 def EoS_ideal_gas(P, C):
@@ -309,12 +310,17 @@ def simulate_analytical(R_surf, M_surf, P_surf, element, N, theta, output_name, 
 
 # ================== tabulated ==================
 def parse_EoS_H(filename, columns):
-    """
-    Load data blocks separated by temperature headers
+    '''
+        Parameters:
+            filename: path to data 
+            colums: colum names
     
-    Returns:
-        dict: {temperature: dataframe} for each block
-    """
+        Returns:
+            T_vals: needed for interpolator
+            P_vals: needed for interpolator
+            rho_3D: 3D matrix [T, P, rho]
+            grad_ad_3D: 3D matrix [T, P, grad_ad]
+    '''
     blocks = {}
     current_temp = None
     current_data = []
@@ -325,10 +331,7 @@ def parse_EoS_H(filename, columns):
             if line.strip().startswith('#iT='):
                 # Save previous block if exists
                 if current_temp is not None and current_data:
-                    blocks[current_temp] = pd.DataFrame(
-                        current_data,
-                        columns=columns
-                    )
+                    blocks[current_temp] = pd.DataFrame(current_data, columns=columns)
                     current_data = []
                 
                 # Extract temperature from header
@@ -337,39 +340,65 @@ def parse_EoS_H(filename, columns):
             # Skip comment lines
             elif line.strip().startswith('#'):
                 continue
-            
-            # Parse data lines
+
+            # Read data
             elif line.strip():
                 values = [float(x) for x in line.split()]
                 current_data.append(values)
         
         # Save last block
         if current_temp is not None and current_data:
-            blocks[current_temp] = pd.DataFrame(
-                current_data,
-                columns=columns
-            )
+            blocks[current_temp] = pd.DataFrame(current_data, columns=columns)
     
-    return blocks
+    # Convert to 3D arrays
+    T_vals = sorted(blocks.keys())
+    P_vals = sorted(blocks[T_vals[0]]['log_P'].unique())
+    rho_3D = np.zeros((len(T_vals), len(P_vals)))
+    grad_ad_3D = np.zeros((len(T_vals), len(P_vals)))
+    
+    for i, T in enumerate(T_vals):
+        for j, P in enumerate(P_vals):
+            rho_3D[i, j] = blocks[T][blocks[T]['log_P'] == P]['log_rho'].values[0]
+            grad_ad_3D[i, j] = blocks[T][blocks[T]['log_P'] == P]['grad_ad'].values[0]
+    
+    return T_vals, P_vals, rho_3D, grad_ad_3D
 
 def parse_EoS_H2O(filename, columns):
-    df = pd.read_csv(
-        filename, 
-        skiprows=21, 
-        sep='\\s+', 
-        names=columns
-    )
+    '''
+        Parameters:
+            filename: path to data 
+            colums: colum names
+    
+        Returns:
+            T_vals: needed for interpolator
+            P_vals: needed for interpolator
+            rho_3D: 3D matrix [T, P, rho]
+            grad_ad_3D: 3D matrix [T, P, grad_ad]
 
-    df = df.sort_values(['temp', 'rho']).reset_index(drop=True)
-    blocks = {T: block for T, block in df.groupby('temp')}
-    return blocks
+    '''
 
-def EoS_tabulated_H(P, T, blocks):
+    df = pd.read_csv(filename, skiprows=21, sep='\\s+', names=columns)
+
+    T_vals = sorted(df['temp'].unique())
+    P_vals = sorted(df['press'].unique())
+    rho_3D = np.zeros((len(T_vals), len(P_vals)))
+    grad_ad_3D = np.zeros((len(T_vals), len(P_vals)))
+    
+    for i, T in enumerate(T_vals):
+        for j, P in enumerate(P_vals):
+            mask = (df['temp'] == T) & (df['press'] == P)
+            if mask.any():
+                rho_3D[i, j] = df.loc[mask, 'rho'].values[0]
+                grad_ad_3D[i, j] = df.loc[mask, 'ad_grad'].values[0]
+    
+    return T_vals, P_vals, rho_3D, grad_ad_3D
+
+def EoS_tabulated_H(P, T, interpolator):
     '''
         Parameters:
             P: [dyne/cm^2] pressure
             T: [K] temperature
-            blocks: 
+            interpolator: interpolator [T, P, rho]
 
         Returns:
             rho: [g/cm^3]
@@ -378,22 +407,19 @@ def EoS_tabulated_H(P, T, blocks):
     P_query = np.log10(P_query)
     T_query = np.log10(T) # K
 
-    # find closest temperature
-    T_closest = min(blocks.keys(), key=lambda temp: abs(temp - T_query))
-    df = blocks[T_closest]
-
     # interpolate rho
-    log_rho = np.interp(P_query, df['log_P'], df['log_rho'])
+    log_rho = interpolator([T_query, P_query])[0]
+
     rho = np.exp(log_rho) # g/cm^3
     
-    return rho, T_closest
+    return rho
 
-def EoS_tabulated_H2O(P, T, blocks):
+def EoS_tabulated_H2O(P, T, interpolator):
     '''
         Parameters:
             P: [dyne/cm^2] pressure
             T: [K] temperature
-            blocks: 
+            interpolator: interpolator [T, P, rho]
 
         Returns:
             rho: [g/cm^3]
@@ -402,15 +428,12 @@ def EoS_tabulated_H2O(P, T, blocks):
     P_query = P * 0.1 # dyne/cm^2 -> Pa
     T_query = T # K
     
-    # find closest temperature
-    T_closest = min(blocks.keys(), key=lambda temp: abs(temp - T_query))
-    df = blocks[T_closest]
-
     # interpolate rho
-    rho = np.interp(P_query, df['press'], df['rho'])
+    rho = interpolator([T_query, P_query])[0]
+
     rho *= 1e-3 # kg/m^3 -> g/cm^3
     
-    return rho, T_closest
+    return rho
 
 def simulate_tabulated(R_surf, M_surf, P_surf, T_surf, element, filename, N, theta, output_name, show_plot=False):
     '''
@@ -432,7 +455,9 @@ def simulate_tabulated(R_surf, M_surf, P_surf, T_surf, element, filename, N, the
             'dlrho_dlT_P', 'dlrho_dlP_T', 'dlS_dlT_P', 'dlS_dlP_T', 'grad_ad'
         ]
 
-        blocks = parse_EoS_H(filename, columns)
+        T_vals, P_vals, rho_3D, grad_ad_3D = parse_EoS_H(filename, columns)
+        interpolator_rho = RegularGridInterpolator((T_vals, P_vals), rho_3D)
+        interpolator_grad_ad = RegularGridInterpolator((T_vals, P_vals), grad_ad_3D)
     elif element == 'H2O':
         if 'pt' in filename:
             columns = [
@@ -452,7 +477,9 @@ def simulate_tabulated(R_surf, M_surf, P_surf, T_surf, element, filename, N, the
         else:
             print(f'invalid file: {filename}')
 
-        blocks = parse_EoS_H2O(filename, columns)
+        T_vals, P_vals, rho_3D, grad_ad_3D = parse_EoS_H2O(filename, columns)
+        interpolator_rho = RegularGridInterpolator((T_vals, P_vals), rho_3D)
+        interpolator_grad_ad = RegularGridInterpolator((T_vals, P_vals), grad_ad_3D)
     else:
         print(f'invalid element: {element}')
         return
@@ -479,9 +506,9 @@ def simulate_tabulated(R_surf, M_surf, P_surf, T_surf, element, filename, N, the
         
         # ------------------- EoS -------------------
         if element == 'H':
-            rho, T_closest_idx = EoS_tabulated_H(P1, T1, blocks)
+            rho = EoS_tabulated_H(P1, T1, interpolator_rho)
         elif element == 'H2O':
-            rho, T_closest_idx = EoS_tabulated_H2O(P1, T1, blocks)
+            rho = EoS_tabulated_H2O(P1, T1, interpolator_rho)
         # -------------------------------------------
         
         data[i,3] = rho
@@ -498,21 +525,17 @@ def simulate_tabulated(R_surf, M_surf, P_surf, T_surf, element, filename, N, the
         
         # ---------- find next temperature ----------
         if element == 'H':
-            p_query = P1 * 1e-9 # Pa -> GPa
-            p_query = np.log10(p_query)
+            P_query = P1 * 1e-10 # dyne/cm^2 -> GPa
+            P_query = np.log10(P_query)
+            T_query = np.log10(T1) # K
 
-            df = blocks[T_closest_idx]
-            closest_idx = (df['log_P'] - p_query).abs().idxmin()
-            closest_row = df.loc[closest_idx]
-            grad_ad = closest_row['grad_ad']
+            grad_ad = interpolator_grad_ad([T_query, P_query])[0]
 
         elif element == 'H2O':
-            p_query = P1
+            P_query = P1 * 0.1 # dyne/cm^2 -> Pa
+            T_query = T1 # K
 
-            df = blocks[T_closest_idx]
-            closest_idx = (df['press'] - p_query).abs().idxmin()
-            closest_row = df.loc[closest_idx]
-            grad_ad = closest_row['ad_grad']
+            grad_ad = interpolator_grad_ad([T_query, P_query])[0]
 
         T2 = T1/P1 * (P2 - P1) * grad_ad + T1
 
@@ -534,7 +557,7 @@ def simulate_tabulated(R_surf, M_surf, P_surf, T_surf, element, filename, N, the
             data[i+1,2] = P2
             data[i+1,4] = T2
 
-        # print(f'{i+1}/{N}', end='\r')
+        print(f'{i+1}/{N}')
 
     # ----------------- save data -------------------
     data =  data[:-(N-i)] # the last lines contain no useful/realistic data and can be removed
@@ -559,6 +582,8 @@ def plot_data(data, filename, show_plot=False):
     name_parts = filename.split('_')
     title = ''
     for part in name_parts[1:]:
+        if part == 'MgSiO3':
+            part = 'MgSiO$_3$'
         title += part + ' '
 
     plt.figure(figsize=(12,8))
@@ -609,8 +634,8 @@ if __name__ == '__main__':
     N = 100
     theta = 5
 
+    # TODO: 3D matrix for H and H2O in file
     # TODO: ideal gas const
-    # TODO: 3D interpolate
     # TODO: RK4
 
     # ----------- Physical Constants ------------
