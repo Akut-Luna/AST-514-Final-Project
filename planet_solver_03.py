@@ -5,6 +5,24 @@ import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
 from scipy.interpolate import RegularGridInterpolator
 
+# Warning tracker to reduce spam
+class WarningTracker:
+    def __init__(self):
+        self.warned = {}
+        self.suppress_spam = True
+    
+    def should_warn(self, key):
+        if self.suppress_spam:
+            if key not in self.warned:
+                self.warned[key] = True
+                return True
+            return False
+        else:
+            return True
+    
+    def reset(self):
+        self.warned = {}
+
 # ================== ideal gas ==================
 def EoS_ideal_gas(P, C):
     '''
@@ -141,7 +159,7 @@ def simulate_ideal_gas_ivp(R_surf, M_surf, P_surf, rho_mean, method, N, theta, o
     
     # ----------------- Save data ---------------
     save_data(data, N, output_name)
-    plot_data(data, N, output_name, show_plot=show_plot)
+    plot_data(data, N, output_name, sim_method=method, show_plot=show_plot)
 
 # ================== polytropic =================
 def EoS_polytropic(P):
@@ -266,7 +284,7 @@ def simulate_polytropic_ivp(R_surf, M_surf, P_surf, method, N, theta, output_nam
     
     # ----------------- Save data ---------------
     save_data(data, N, output_name)
-    plot_data(data, N, output_name, show_plot=show_plot)
+    plot_data(data, N, output_name, sim_method=method, show_plot=show_plot)
 
 # ================== analytical =================
 def EoS_analytical_Fe(P, df):
@@ -461,7 +479,7 @@ def simulate_analytical_ivp(R_surf, M_surf, P_surf, method, element, N, theta, o
     
     # ----------------- Save data ---------------
     save_data(data, N, output_name)
-    plot_data(data, N, output_name, show_plot=show_plot)
+    plot_data(data, N, output_name, sim_method=method, show_plot=show_plot)
 
 # ================== tabulated ==================
 def parse_EoS_H(filename, columns):
@@ -598,6 +616,8 @@ def EoS_tabulated_H(P, T, interpolator):
         Returns:
             rho: [g/cm^3]
     '''
+    global warning_tracker
+
     P_query = P * 1e-10 # dyne/cm^2 -> GPa
     P_query = np.log10(P_query)
     T_query = np.log10(T) # K
@@ -606,11 +626,13 @@ def EoS_tabulated_H(P, T, interpolator):
     P_vals = interpolator.grid[1]
 
     if T_query < min(T_vals) or  max(T_vals) < T_query:
-        print(f'T: e^{T_query:.3f} is out of bounds -> cliped to range [e^{min(T_vals)}, e^{max(T_vals)}]')
+        if warning_tracker.should_warn('H_T_bounds'):
+            print(f'T: e^{T_query:.3f} is out of bounds -> cliped to range [e^{min(T_vals)}, e^{max(T_vals)}]')
         T_query = np.clip(T_query, min(T_vals), max(T_vals))
 
     if P_query < min(P_vals) or max(P_vals) < P_query:
-        print(f'P: e^{P_query:.3f} is out of bounds -> cliped to range [e^{min(P_vals)}, e^{max(P_vals)}]')
+        if warning_tracker.should_warn('H_P_bounds'):
+            print(f'P: e^{P_query:.3f} is out of bounds -> cliped to range [e^{min(P_vals)}, e^{max(P_vals)}]')
         P_query = np.clip(P_query, min(P_vals), max(P_vals))
 
     # interpolate rho
@@ -630,6 +652,7 @@ def EoS_tabulated_H2O(P, T, interpolator):
         Returns:
             rho: [g/cm^3]
     '''
+    global warning_tracker
 
     P_query = P * 0.1 # dyne/cm^2 -> Pa
     T_query = T # K
@@ -638,11 +661,13 @@ def EoS_tabulated_H2O(P, T, interpolator):
     P_vals = interpolator.grid[1]
 
     if T_query < min(T_vals) or  max(T_vals) < T_query:
-        print(f'T: {T_query:.3f} is out of bounds -> cliped to range [{min(T_vals)}, {max(T_vals)}]')
+        if warning_tracker.should_warn('H2O_T_bounds'):
+            print(f'T: {T_query:.3f} is out of bounds -> cliped to range [{min(T_vals)}, {max(T_vals)}]')
         T_query = np.clip(T_query, min(T_vals), max(T_vals))
 
     if P_query < min(P_vals) or max(P_vals) < P_query:
-        print(f'P: {P_query:.3f} is out of bounds -> cliped to range [{min(P_vals)}, {max(P_vals)}]')
+        if warning_tracker.should_warn('H2O_P_bounds'):
+            print(f'P: {P_query:.3f} is out of bounds -> cliped to range [{min(P_vals)}, {max(P_vals)}]')
         P_query = np.clip(P_query, min(P_vals), max(P_vals))
 
     # interpolate rho
@@ -665,6 +690,9 @@ def simulate_tabulated_Euler(R_surf, M_surf, P_surf, T_surf, element, filename, 
         theta: strech factor -> higher = r_grid is more dense close to the surface
         output_name: name for data and plot file
     '''
+    global warning_tracker
+    warning_tracker.reset()
+
     # ------------- look up tables --------------
     if element == 'H':
         columns = [
@@ -812,6 +840,9 @@ def simulate_tabulated_ivp(R_surf, M_surf, P_surf, T_surf, method, element, file
         theta: stretch factor -> higher = r_grid is more dense close to the surface
         output_name: name for data and plot file
     '''
+    global warning_tracker
+    warning_tracker.reset()
+
     # ------------- look up tables --------------
     if element == 'H':
         columns = [
@@ -993,7 +1024,7 @@ def simulate_tabulated_ivp(R_surf, M_surf, P_surf, T_surf, method, element, file
     
     # ----------------- Save data ---------------
     save_data(data, N, output_name)
-    plot_data(data, N, output_name, show_plot=show_plot)
+    plot_data(data, N, output_name, sim_method=method, show_plot=show_plot)
 
 # ============== helper functions ===============
 def calculate_normalised_MoI(data, M_surf, R_surf):
@@ -1034,7 +1065,7 @@ def create_grids(R, N, theta):
     data = np.zeros((N+1,6)) # [r, m, p, rho, moi, T]
     return r_grid, data
 
-def plot_data(data, N, filename, show_plot=False):
+def plot_data(data, N, filename, sim_method='Euler', show_plot=False):
 
     # ------------------ path -------------------
     folder_path = os.path.join('plots', f'N={N}')
@@ -1058,7 +1089,7 @@ def plot_data(data, N, filename, show_plot=False):
         sim_name += part + ' '
 
     MoI = data[0,4]
-    title = f'{planet_name} \u2013 {sim_name}\nN={N_eff}, $\\theta$={theta}, ' + '$I_\\text{norm}$=' + f'{MoI:.2e}'
+    title = f'{planet_name} \u2013 {sim_name} \u2013 {sim_method}\nN={N_eff}, $\\theta$={theta}, ' + '$I_\\text{norm}$=' + f'{MoI:.2e}'
 
     # ------------------- plot ------------------
     plt.figure(figsize=(12,8))
@@ -1222,21 +1253,20 @@ def solve_ivp_with_events(system_func, r_grid, y0, method, N, data):
 
 def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, solver_method='RK45'):
     '''
-        Parameters:
-            planet: name (Earth, Jupiter, Saturn and Uranus don't require parameters)
-            EoS: list of int representing the Simulations that should be done.
-                1: ideal gas
-                2: polytropic
-                3: analytical Fe
-                4: analytical MgSiO3
-                5: tabulated H
-                6: tabulated H2O
-            R: [cm] mean radius
-            M: [g] mass
-            P_surface: [dyne/cm^2] surface pressure
-            T_surface: [K] surface temperature
+    Parameters:
+        planet: name (Earth, Jupiter, Saturn and Uranus don't require parameters)
+        EoS: list of int representing the Simulations that should be done.
+            1: ideal gas
+            2: polytropic
+            3: analytical Fe
+            4: analytical MgSiO3
+            5: tabulated H
+            6: tabulated H2O
+        R: [cm] mean radius
+        M: [g] mass
+        P_surface: [dyne/cm^2] surface pressure
+        T_surface: [K] surface temperature
     '''
-
     # ----------- boundary conditions -----------
     if planet == 'Jupiter':
         R = 6.9911e9        # cm        [A]
@@ -1421,8 +1451,10 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, solver_meth
                 output_name=f'{planet}_06_tabulated_H2O_{solver_method}_theta_{theta}'
             )
 
-# plt.show()
 if __name__ == '__main__':
+    warning_tracker = WarningTracker()
+    warning_tracker.suppress_spam = True
+
     N = 100
     theta = 5
     method = 'RK45' # 'Euler', 'RK45', 'DOP853', 'Radau' 
@@ -1435,12 +1467,13 @@ if __name__ == '__main__':
     
     C_ideal_gas = 1.96e12 # (cm^2/g)^2 * dyne/cm^2 TODO
 
-    # simulate_planet('Earth',   [1, 2, 3, 4, 5, 6])
-    # simulate_planet('Jupiter', [1, 2, 3, 4, 5, 6])
-    # simulate_planet('Saturn',  [1, 2, 3, 4, 5, 6])
-    # simulate_planet('Uranus',  [1, 2, 3, 4, 5, 6])
+    # for method in ['Euler', 'RK45', 'DOP853', 'Radau' ]:
+    #     simulate_planet('Earth',   [1, 2, 3, 4, 5, 6], solver_method=method)
+    #     simulate_planet('Jupiter', [1, 2, 3, 4, 5, 6], solver_method=method)
+    #     simulate_planet('Saturn',  [1, 2, 3, 4, 5, 6], solver_method=method)
+    #     simulate_planet('Uranus',  [1, 2, 3, 4, 5, 6], solver_method=method)
 
     simulate_planet('Earth',   [5, 6], solver_method=method)
-    # simulate_planet('Jupiter', [5, 6], solver_method=method)
-    # simulate_planet('Saturn',  [5, 6], solver_method=method)
-    # simulate_planet('Uranus',  [5, 6], solver_method=method)
+    simulate_planet('Jupiter', [5, 6], solver_method=method)
+    simulate_planet('Saturn',  [5, 6], solver_method=method)
+    simulate_planet('Uranus',  [5, 6], solver_method=method)
