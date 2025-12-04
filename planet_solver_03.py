@@ -2,6 +2,7 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy.integrate import solve_ivp
 from scipy.interpolate import RegularGridInterpolator
 
 # ================== ideal gas ==================
@@ -20,32 +21,34 @@ def EoS_ideal_gas(P, C):
 
     return rho
 
-def simulate_ideal_gas(R_surf, M_surf, P_surf, N, theta, output_name, show_plot=False):
+def simulate_ideal_gas_Euler(R_surf, M_surf, P_surf, rho_mean, N, theta, output_name, show_plot=False):
     '''
-        Prameters:
-            R_surf: [cm] radius of planet
-            P_surf: [dyne/cm^2] surface pressure of planet
-            M_surf: [g] total mass of planet
-            N: number of steps
-            theta: strech factor -> higher = r_grid is more dense close to the surface
-            output_name: name for data and plot file
+    Prameters:
+        R_surf: [cm] radius of planet
+        M_surf: [g] total mass of planet
+        P_surf: [dyne/cm^2] surface pressure of planet
+        N: number of steps
+        theta: strech factor -> higher = r_grid is more dense close to the surface
+        output_name: name for data and plot file
     '''
 
     # ------------ inital conditions ------------
-
     r_grid, data = create_grids(R_surf, N, theta)
 
     data[0,0] = R_surf
     data[0,1] = M_surf
     data[0,2] = P_surf
 
+    gamma = 5/3
+    C_ideal_gas = P_surf * (1/rho_mean)**gamma
+
+    # C_ideal_gas = 1.96e12 # (cm^2/g)^2 * dyne/cm^2 TODO
+
     # ------------- run simulation --------------
-    print('start ideal gas')
+    print('start ideal gas (euler)')
     for i in range(N):
         r1 = r_grid[i]
         r2 = r_grid[i+1]
-        
-        if r2 == 0.0: r2 = 1e-6 # handle div by 0 error
 
         m1 = data[i,1] 
         P1 = data[i,2]
@@ -54,7 +57,7 @@ def simulate_ideal_gas(R_surf, M_surf, P_surf, N, theta, output_name, show_plot=
         rho = EoS_ideal_gas(P1, C_ideal_gas)
         # -------------------------------------------
 
-        res = simulate_T_independet_part_2(r1, r2, m1, P1, rho, data, i)
+        res = solve_Euler_with_events(r1, r2, m1, P1, rho, data, i)
         if res == False:
             break        
 
@@ -64,6 +67,78 @@ def simulate_ideal_gas(R_surf, M_surf, P_surf, N, theta, output_name, show_plot=
     # ------------ Moment of Inertia ------------
     calculate_normalised_MoI(data, M_surf, R_surf)
 
+    # ----------------- Save data ---------------
+    save_data(data, N, output_name)
+    plot_data(data, N, output_name, show_plot=show_plot)
+
+def simulate_ideal_gas_ivp(R_surf, M_surf, P_surf, rho_mean, method, N, theta, output_name, show_plot=False):
+    '''    
+    Parameters:
+        R_surf: [cm] radius of planet
+        M_surf: [g] total mass of planet
+        P_surf: [dyne/cm^2] surface pressure of planet
+        rho_mean: [g/cm^3] mean density
+        method: ode solver 'RK45', 'DOP853', 'Radau'
+        N: number of steps
+        theta: stretch factor -> higher = r_grid is more dense close to the surface
+        output_name: name for data and plot file
+    '''
+    
+    # ------------ Initial conditions ------------
+    r_grid, data = create_grids(R_surf, N, theta)
+    
+    data[0,0] = R_surf
+    data[0,1] = M_surf
+    data[0,2] = P_surf
+    
+    gamma = 5/3
+    C_ideal_gas = P_surf * (1/rho_mean)**gamma
+
+    # C_ideal_gas = 1.96e12 # (cm^2/g)^2 * dyne/cm^2 TODO
+
+    # ------------- Run simulation --------------
+    print(f'start ideal gas ({method})')
+    
+    # Define the system of ODEs
+    def system_of_ODEs(r, y):
+        m, P = y
+        
+        # Prevent numerical issues near center
+        if r < 1e-10:
+            r = 1e-10
+        
+        # ----------------- EoS -----------------
+        rho = EoS_ideal_gas(P, C_ideal_gas)
+        # ---------------------------------------
+        
+        # ODEs
+        dm_dr = 4 * np.pi * r**2 * rho
+        dP_dr = -G * m * rho / r**2
+        
+        return [dm_dr, dP_dr]
+    
+    # Solve the system using solve_ivp
+    data = solve_ivp_with_events(
+        system_of_ODEs,
+        r_grid,
+        [M_surf, P_surf],
+        method,
+        N,
+        data
+    )
+    
+    # ----------------- Density -----------------
+    for i, P in enumerate(data[:,2]):
+
+        # ----------------- EoS -----------------
+        rho = EoS_ideal_gas(P, C_ideal_gas)
+        # ---------------------------------------
+
+        data[i,3] = rho
+    
+    # ------------ Moment of Inertia ------------
+    calculate_normalised_MoI(data, M_surf, R_surf)
+    
     # ----------------- Save data ---------------
     save_data(data, N, output_name)
     plot_data(data, N, output_name, show_plot=show_plot)
@@ -82,7 +157,7 @@ def EoS_polytropic(P):
     
     return rho
 
-def simulate_polytropic(R_surf, M_surf, P_surf, N, theta, output_name, show_plot=False):
+def simulate_polytropic_Euler(R_surf, M_surf, P_surf, N, theta, output_name, show_plot=False):
     '''
         Prameters:
             R_surf: [cm] radius of planet
@@ -101,7 +176,7 @@ def simulate_polytropic(R_surf, M_surf, P_surf, N, theta, output_name, show_plot
     data[0,2] = P_surf
 
     # ------------- run simulation --------------
-    print('start polytropic')
+    print('start polytropic (Euler)')
     for i in range(N):
         r1 = r_grid[i]
         r2 = r_grid[i+1]
@@ -115,7 +190,7 @@ def simulate_polytropic(R_surf, M_surf, P_surf, N, theta, output_name, show_plot
         rho = EoS_polytropic(P1)
         # -------------------------------------------
         
-        res = simulate_T_independet_part_2(r1, r2, m1, P1, rho, data, i)
+        res = solve_Euler_with_events(r1, r2, m1, P1, rho, data, i)
         if res == False:
             break
 
@@ -125,6 +200,72 @@ def simulate_polytropic(R_surf, M_surf, P_surf, N, theta, output_name, show_plot
     # ------------ Moment of Inertia ------------
     calculate_normalised_MoI(data, M_surf, R_surf)
 
+    # ----------------- Save data ---------------
+    save_data(data, N, output_name)
+    plot_data(data, N, output_name, show_plot=show_plot)
+
+def simulate_polytropic_ivp(R_surf, M_surf, P_surf, method, N, theta, output_name, show_plot=False):
+    '''    
+    Parameters:
+        R_surf: [cm] radius of planet
+        M_surf: [g] total mass of planet
+        P_surf: [dyne/cm^2] surface pressure of planet
+        method: ode solver 'RK45', 'DOP853', 'Radau'
+        N: number of steps
+        theta: stretch factor -> higher = r_grid is more dense close to the surface
+        output_name: name for data and plot file
+    '''
+    
+    # ------------ Initial conditions ------------
+    r_grid, data = create_grids(R_surf, N, theta)
+    
+    data[0,0] = R_surf
+    data[0,1] = M_surf
+    data[0,2] = P_surf
+
+    # ------------- Run simulation --------------
+    print(f'start polytropic ({method})')
+    
+    # Define the system of ODEs
+    def system_of_ODEs(r, y):
+        m, P = y
+        
+        # Prevent numerical issues near center
+        if r < 1e-10:
+            r = 1e-10
+        
+        # ----------------- EoS -----------------
+        rho = EoS_polytropic(P)
+        # ---------------------------------------
+        
+        # ODEs
+        dm_dr = 4 * np.pi * r**2 * rho
+        dP_dr = -G * m * rho / r**2
+        
+        return [dm_dr, dP_dr]
+    
+    # Solve the system using solve_ivp
+    data = solve_ivp_with_events(
+        system_of_ODEs,
+        r_grid,
+        [M_surf, P_surf],
+        method,
+        N,
+        data
+    )
+    
+    # ----------------- Density -----------------
+    for i, P in enumerate(data[:,2]):
+        
+        # ----------------- EoS -----------------
+        rho = EoS_polytropic(P)
+        # ---------------------------------------
+
+        data[i,3] = rho
+    
+    # ------------ Moment of Inertia ------------
+    calculate_normalised_MoI(data, M_surf, R_surf)
+    
     # ----------------- Save data ---------------
     save_data(data, N, output_name)
     plot_data(data, N, output_name, show_plot=show_plot)
@@ -185,7 +326,7 @@ def EoS_analytical_MgSiO3(P, df):
 
     return rho
 
-def simulate_analytical(R_surf, M_surf, P_surf, element, N, theta, output_name, show_plot=False):
+def simulate_analytical_Euler(R_surf, M_surf, P_surf, element, N, theta, output_name, show_plot=False):
     '''
         Prameters:
             R_surf: [cm] radius of planet
@@ -213,7 +354,7 @@ def simulate_analytical(R_surf, M_surf, P_surf, element, N, theta, output_name, 
     data[0,1] = M_surf
     data[0,2] = P_surf
 
-    # ------------- run simulation --------------
+    # ------------- Run simulation --------------
     print(f'start analytical {element}')
     for i in range(N):
         r1 = r_grid[i]
@@ -231,7 +372,7 @@ def simulate_analytical(R_surf, M_surf, P_surf, element, N, theta, output_name, 
             rho = EoS_analytical_MgSiO3(P1, df)
         # -------------------------------------------
         
-        res = simulate_T_independet_part_2(r1, r2, m1, P1, rho, data, i)
+        res = solve_Euler_with_events(r1, r2, m1, P1, rho, data, i)
         if res == False:
             break
 
@@ -241,6 +382,87 @@ def simulate_analytical(R_surf, M_surf, P_surf, element, N, theta, output_name, 
     # ------------ Moment of Inertia ------------
     calculate_normalised_MoI(data, M_surf, R_surf)
 
+    # ----------------- Save data ---------------
+    save_data(data, N, output_name)
+    plot_data(data, N, output_name, show_plot=show_plot)
+
+def simulate_analytical_ivp(R_surf, M_surf, P_surf, method, element, N, theta, output_name, show_plot=False):
+    '''    
+    Parameters:
+        R_surf: [cm] radius of planet
+        M_surf: [g] total mass of planet
+        P_surf: [dyne/cm^2] surface pressure of planet
+        method: ode solver 'RK45', 'DOP853', 'Radau'
+        element: 'Fe', or 'MgSiO3'
+        N: number of steps
+        theta: stretch factor -> higher = r_grid is more dense close to the surface
+        output_name: name for data and plot file
+    '''
+    # ------------- look up tables --------------
+    if element == 'Fe':
+        df = pd.read_csv('data/EoS_Fe/EoS_Fe.csv', names=['p', 'rho'], skiprows=1)
+    elif element == 'MgSiO3':
+        df = pd.read_csv('data/EoS_MgSiO3/EoS_MgSiO3.csv', names=['p', 'rho'], skiprows=1)
+    else:
+        print(f'invalid element: {element}')
+        return
+    
+    # ------------ Initial conditions ------------
+    r_grid, data = create_grids(R_surf, N, theta)
+    
+    data[0,0] = R_surf
+    data[0,1] = M_surf
+    data[0,2] = P_surf
+
+    # ------------- Run simulation --------------
+    print(f'start analytical ({method})')
+    
+    # Define the system of ODEs
+    def system_of_ODEs(r, y):
+        m, P = y
+        
+        # Prevent numerical issues near center
+        if r < 1e-10:
+            r = 1e-10
+        
+        # ----------------- EoS -----------------
+        if element == 'Fe':
+            rho = EoS_analytical_Fe(P, df)
+        elif element == 'MgSiO3':
+            rho = EoS_analytical_MgSiO3(P, df)
+        # ---------------------------------------
+        
+        # ODEs
+        dm_dr = 4 * np.pi * r**2 * rho
+        dP_dr = -G * m * rho / r**2
+        
+        return [dm_dr, dP_dr]
+    
+    # Solve the system using solve_ivp
+    data = solve_ivp_with_events(
+        system_of_ODEs,
+        r_grid,
+        [M_surf, P_surf],
+        method,
+        N,
+        data
+    )
+    
+    # ----------------- Density -----------------
+    for i, P in enumerate(data[:,2]):
+
+        # ----------------- EoS -----------------
+        if element == 'Fe':
+            rho = EoS_analytical_Fe(P, df)
+        elif element == 'MgSiO3':
+            rho = EoS_analytical_MgSiO3(P, df)
+        # ---------------------------------------
+
+        data[i,3] = rho
+    
+    # ------------ Moment of Inertia ------------
+    calculate_normalised_MoI(data, M_surf, R_surf)
+    
     # ----------------- Save data ---------------
     save_data(data, N, output_name)
     plot_data(data, N, output_name, show_plot=show_plot)
@@ -434,7 +656,7 @@ def EoS_tabulated_H2O(P, T, interpolator):
     
     return rho
 
-def simulate_tabulated(R_surf, M_surf, P_surf, T_surf, element, filename, N, theta, output_name, show_plot=False):
+def simulate_tabulated_Euler(R_surf, M_surf, P_surf, T_surf, element, filename, N, theta, output_name, show_plot=False):
     '''
         Prameters:
             R_surf: [cm] radius of planet
@@ -591,9 +813,10 @@ def calculate_normalised_MoI(data, M_surf, R_surf):
     dr3 = r2**3 - r1**3
     dr5 = r2**5 - r1**5
 
-    # Avoid division by zero
-    MoI_shells = np.where(dr3 != 0, dm * 2/5 * dr5/dr3, 0)
-
+    # Avoid division by zero - use safe division
+    with np.errstate(divide='ignore', invalid='ignore'):
+        ratio = np.where(dr3 != 0, dr5/dr3, 0)
+    MoI_shells = dm * 2/5 * ratio
     # Cumulative sum for total MoI at each radius
     MoIs = np.cumsum(MoI_shells)
 
@@ -689,10 +912,13 @@ def save_data(data, N, filename):
     path = os.path.join(folder_path, f'{filename}.csv')
     np.savetxt(path, data, delimiter=',', header=header)
 
-def simulate_T_independet_part_2(r1, r2, m1, P1, rho, data, i):
+def solve_Euler_with_events(r1, r2, m1, P1, rho, data, i):
     data[i,3] = rho
 
     # ---------- Calculate derivatives ----------
+    if r2 < 1e-10: # handle div by 0 error
+        r2 = 1e-10 
+
     dm_dr = 4 * np.pi * r1**2 * rho
     dP_dr = -G * m1 * rho / r1**2
     
@@ -719,7 +945,85 @@ def simulate_T_independet_part_2(r1, r2, m1, P1, rho, data, i):
 
     return True
 
-def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0):
+def solve_ivp_with_events(system_func, r_grid, y0, method, N, data):
+    """
+    Wrapper for solve_ivp that handles events and integration.
+    This is reusable for different EoS systems.
+    
+    Parameters:
+        system_func: function defining the ODEs
+        r_grid: radial grid points
+        y0: initial conditions [m0, P0, ...]
+        method: ODE solver method
+        N: number of steps
+        data: (N, 6) array to save the data in (passed by reference)
+    
+    Returns:
+        data: (N, 6) array with R, M, and P filled in
+    """
+    
+    # Define events to stop integration
+    def negative_pressure_event(r, y):
+        return y[1]  # Stop when pressure becomes negative
+    negative_pressure_event.terminal = True
+    negative_pressure_event.direction = -1
+    
+    def negative_mass_event(r, y):
+        return y[0]  # Stop when mass becomes negative
+    negative_mass_event.terminal = True
+    negative_mass_event.direction = -1
+    
+    # Solve from surface to center
+    r_span = (r_grid[0], r_grid[-1])
+    
+    # Set tolerances based on method
+    if method == 'DOP853':
+        rtol = 1e-10
+        atol = 1e-12
+    else:
+        rtol = 1e-8
+        atol = 1e-10
+    
+    sol = solve_ivp(
+        system_func,
+        r_span,
+        y0,
+        method=method,
+        t_eval=r_grid,
+        events=[negative_pressure_event, negative_mass_event],
+        rtol=rtol,
+        atol=atol,
+        max_step=np.inf  # Let the solver choose step size
+    )
+    
+    if sol.status == 1:  # Terminated by event
+        if len(sol.t_events[0]) > 0:
+            print(f'>'*25, 'ALERT', '<'*25)
+            print(f' negative pressure at step {len(sol.t)}/{N}')
+        elif len(sol.t_events[1]) > 0:
+            print(f' aborted at step {len(sol.t)}/{N}')
+    elif sol.status == -1:
+        print(f' Integration failed at step {len(sol.t)}/{N}')
+        return None
+    
+    if sol.status == 0 or sol.status == 1: # success or terminated early
+        # Store the solution
+        n_points = len(sol.t)
+
+        # Trim data array to actual size
+        data = data[:n_points]
+        
+        data[:,0] = sol.t     # radius
+        data[:,1] = sol.y[0]  # mass
+        data[:,2] = sol.y[1]  # pressure
+
+        # Trim data array to actual size
+        if data[:,0][-1] == 0.0:
+            data = data[:-1]
+    
+    return data
+
+def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, solver_method='RK45'):
     '''
         Parameters:
             planet: name (Earth, Jupiter, Saturn and Uranus don't require parameters)
@@ -738,28 +1042,43 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0):
 
     # ----------- boundary conditions -----------
     if planet == 'Jupiter':
-        R = 6.9911e9        # cm
-        M = 1.898e30        # g
+        R = 6.9911e9        # cm        [A]
+        M = 1.898125e30     # g         [F]
+        rho = 1.3262        # g/cm^3    [F]
         P_surface = 1e6     # dyne/cm^2 = 1 Bar
         T_surface = 165     # K
 
     elif planet == 'Saturn':
-        R = 5.8232e9        # cm
-        M = 5.6836e29       # g
+        R = 5.8232e9        # cm        [A]
+        M = 5.6836e29       # g         [G]
+        rho = 0.6871        # g/cm^3    [F]
         P_surface = 1e6     # dyne/cm^2 = 1 Bar
         T_surface = 134     # K
 
     elif planet == 'Uranus':
-        R = 2.5362e9        # cm        https://doi.org/10.1007%2Fs10569-007-9072-y
-        M = 8.681e+28       # g         https://doi.org/10.1086%2F116211
+        R = 2.5362e9        # cm        [A][B]
+        M = 8.68099e+28     # g         [H][C]
+        rho = 1.270         # g/cm^3    [F]     
         P_surface = 1e6     # dyne/cm^2 = 1 Bar
-        T_surface = 76      # K         https://doi.org/10.1016%2F0032-0633%2895%2900061-5
+        T_surface = 76      # K         [D]
 
     elif planet == 'Earth':
-        R = 6.371e8         # cm    
-        M = 5.972e27        # g     
+        R = 6.371e8         # cm        [A]
+        M = 5.97217e27      # g         [E]
+        rho = 5.5134        # g/cm^3    [F]     
         P_surface = 1e6     # dyne/cm^2 = 1 Bar
         T_surface = 288     # K     
+
+    # ---------------- References ---------------
+    # https://ssd.jpl.nasa.gov/planets/phys_par.html
+    # [A]   Archinal, B.A. et al. 2018. "Report of the IAU/IAG Working Group on cartographic coordinates and rotational elements: 2015" Celestial Mech. Dyn. Astr. 130:22.
+    # [B]   https://doi.org/10.1007%2Fs10569-007-9072-y
+    # [C]   https://ui.adsabs.harvard.edu/abs/1992AJ....103.2068J/abstract
+    # [D]   https://www.sciencedirect.com/science/article/abs/pii/0032063395000615?via%3Dihub
+    # [E]   Folkner, W.M. and Williams, J.G. 2008. "Mass parameters and uncertainties in planetary ephemeris DE421." Interoffice Memo. 343R-08-004 (internal document), Jet Propulsion Laboratory, Pasadena, CA.
+    # [F]   https://ssd.jpl.nasa.gov/planets/phys_par.html
+    # [G]   Jacobson, R.A., et al. 2006. "The gravity field of the Saturnian system from satellite observations and spacecraft tracking data" AJ 132(6):2520-2526.
+    # [H]   Jacobson, R.A. 2014. "The Orbits of the Uranian Satellites and Rings, the Gravity Field of the Uranian System, and the Orientation of the Pole of Uranus" AJ 148:76-88.
 
     if R == 0 or M == 0 or P_surface == 0:
         print('invalid boundary conditions')
@@ -771,82 +1090,155 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0):
 
     # --------------- simulations ---------------
     print('\n'+('='*10), planet, '='*10)
-    if 1 in EoS:
-        simulate_ideal_gas(
-            R, 
-            M,
-            P_surface,
-            N=N,
-            theta=theta,
-            output_name=f'{planet}_01_ideal_gas_N_{N}_theta_{theta}'
-        )
-        
-    if 2 in EoS:
-        simulate_polytropic(
-            R, 
-            M,
-            P_surface,
-            N=N,
-            theta=theta,
-            output_name=f'{planet}_02_polytropic_N_{N}_theta_{theta}'
-        )
+    if solver_method == 'Euler':
+        if 1 in EoS:
+            simulate_ideal_gas_Euler(
+                R, 
+                M,
+                P_surface,
+                rho,
+                N=N,
+                theta=theta,
+                output_name=f'{planet}_01_ideal_gas_Euler_theta_{theta}'
+            )
+        if 2 in EoS:
+            simulate_polytropic_Euler(
+                R, 
+                M,
+                P_surface,
+                N=N,
+                theta=theta,
+                output_name=f'{planet}_02_polytropic_N_{N}_theta_{theta}'
+            )
+        if 3 in EoS:
+            simulate_analytical_Euler(
+                R, 
+                M,
+                P_surface,
+                element='Fe',
+                N=N,
+                theta=theta,
+                output_name=f'{planet}_03_analytical_Fe_N_{N}_theta_{theta}'
+            )
+        if 4 in EoS:
+            simulate_analytical_Euler(
+                R, 
+                M,
+                P_surface,
+                element='MgSiO3',
+                N=N,
+                theta=theta,
+                output_name=f'{planet}_04_analytical_MgSiO3_N_{N}_theta_{theta}'
+            )
+        if 5 in EoS:
+            simulate_tabulated_Euler(
+                R, 
+                M,
+                P_surface,
+                T_surface,
+                element='H',
+                filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv',
+                N=N,
+                theta=theta,
+                output_name=f'{planet}_05_tabulated_H_N_{N}_theta_{theta}'
+            )
+        if 6 in EoS:
+            simulate_tabulated_Euler(
+                R, 
+                M,
+                P_surface,
+                T_surface,
+                element='H2O',
+                filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
+                N=N,
+                theta=theta,
+                output_name=f'{planet}_06_tabulated_H2O_N_{N}_theta_{theta}'
+            )
+    
+    else:
+        if 1 in EoS:
+            simulate_ideal_gas_ivp(
+                R, 
+                M,
+                P_surface,
+                rho,
+                solver_method,
+                N=N,
+                theta=theta,
+                output_name=f'{planet}_01_ideal_gas_Euler_theta_{theta}'
+            )
+            
+        if 2 in EoS:
+            simulate_polytropic_ivp(
+                R, 
+                M,
+                P_surface,
+                solver_method,
+                N=N,
+                theta=theta,
+                output_name=f'{planet}_02_polytropic_{solver_method}_theta_{theta}'
+            )
 
-    if 3 in EoS:
-        simulate_analytical(
-            R, 
-            M,
-            P_surface,
-            element='Fe',
-            N=N,
-            theta=theta,
-            output_name=f'{planet}_03_analytical_Fe_N_{N}_theta_{theta}'
-        )
+        if 3 in EoS:
+            simulate_analytical_ivp(
+                R, 
+                M,
+                P_surface,
+                solver_method,
+                element='Fe',
+                N=N,
+                theta=theta,
+                output_name=f'{planet}_03_analytical_Fe_N_{N}_theta_{theta}'
+            )
 
-    if 4 in EoS:
-        simulate_analytical(
-            R, 
-            M,
-            P_surface,
-            element='MgSiO3',
-            N=N,
-            theta=theta,
-            output_name=f'{planet}_04_analytical_MgSiO3_N_{N}_theta_{theta}'
-        )
+        if 4 in EoS:
+            simulate_analytical_ivp(
+                R, 
+                M,
+                P_surface,
+                solver_method,
+                element='MgSiO3',
+                N=N,
+                theta=theta,
+                output_name=f'{planet}_04_analytical_MgSiO3_N_{N}_theta_{theta}'
+            )
 
-    if 5 in EoS:
-        simulate_tabulated(
-            R, 
-            M,
-            P_surface,
-            T_surface,
-            element='H',
-            filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv',
-            N=N,
-            theta=theta,
-            output_name=f'{planet}_05_tabulated_H_N_{N}_theta_{theta}'
-        )
+        # if 5 in EoS:
+        #     simulate_tabulated_ivp(
+        #         R, 
+        #         M,
+        #         P_surface,
+        #         T_surface,
+        #         solver_method,
+        #         element='H',
+        #         filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv',
+        #         N=N,
+        #         theta=theta,
+        #         output_name=f'{planet}_05_tabulated_H_N_{N}_theta_{theta}'
+        #     )
 
-    if 6 in EoS:
-        simulate_tabulated(
-            R, 
-            M,
-            P_surface,
-            T_surface,
-            element='H2O',
-            filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
-            N=N,
-            theta=theta,
-            output_name=f'{planet}_06_tabulated_H2O_N_{N}_theta_{theta}'
-        )
+        # if 6 in EoS:
+        #     simulate_tabulated_ivp(
+        #         R, 
+        #         M,
+        #         P_surface,
+        #         T_surface,
+        #         solver_method,
+        #         element='H2O',
+        #         filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
+        #         N=N,
+        #         theta=theta,
+        #         output_name=f'{planet}_06_tabulated_H2O_N_{N}_theta_{theta}'
+        #     )
 
 # plt.show()
 if __name__ == '__main__':
     N = 100
     theta = 5
+    method = 'RK45'
 
     # TODO: RK4
     # TODO: m grid
-    # TODO: ideal gas const -> need surface density
     # TODO: what is wrong with Silicat (i.e. BME4)?
 
     # ----------- Physical Constants ------------
@@ -856,7 +1248,12 @@ if __name__ == '__main__':
 
     # simulate_planet('Jupiter', [6])
 
-    simulate_planet('Earth',   [1, 2, 3, 4, 5, 6])
-    simulate_planet('Jupiter', [1, 2, 3, 4, 5, 6])
-    simulate_planet('Saturn',  [1, 2, 3, 4, 5, 6])
-    simulate_planet('Uranus',  [1, 2, 3, 4, 5, 6])
+    # simulate_planet('Earth',   [1, 2, 3, 4, 5, 6])
+    # simulate_planet('Jupiter', [1, 2, 3, 4, 5, 6])
+    # simulate_planet('Saturn',  [1, 2, 3, 4, 5, 6])
+    # simulate_planet('Uranus',  [1, 2, 3, 4, 5, 6])
+
+    simulate_planet('Earth',   [4], solver_method=method)
+    simulate_planet('Jupiter', [4], solver_method=method)
+    simulate_planet('Saturn',  [4], solver_method=method)
+    simulate_planet('Uranus',  [4], solver_method=method)
