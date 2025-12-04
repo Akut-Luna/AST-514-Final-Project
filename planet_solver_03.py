@@ -181,8 +181,6 @@ def simulate_polytropic_Euler(R_surf, M_surf, P_surf, N, theta, output_name, sho
         r1 = r_grid[i]
         r2 = r_grid[i+1]
         
-        if r2 == 0.0: r2 = 1e-6 # handle div by 0 error
-
         m1 = data[i,1] 
         P1 = data[i,2]
         
@@ -328,14 +326,14 @@ def EoS_analytical_MgSiO3(P, df):
 
 def simulate_analytical_Euler(R_surf, M_surf, P_surf, element, N, theta, output_name, show_plot=False):
     '''
-        Prameters:
-            R_surf: [cm] radius of planet
-            M_surf: [g] total mass of planet
-            P_surf: [dyne/cm^2] surface pressure of planet
-            element: 'Fe', or 'MgSiO3'
-            N: number of steps
-            theta: strech factor -> higher = r_grid is more dense close to the surface
-            output_name: name for data and plot file
+    Prameters:
+        R_surf: [cm] radius of planet
+        M_surf: [g] total mass of planet
+        P_surf: [dyne/cm^2] surface pressure of planet
+        element: 'Fe', or 'MgSiO3'
+        N: number of steps
+        theta: strech factor -> higher = r_grid is more dense close to the surface
+        output_name: name for data and plot file
     '''
 
     # ------------- look up tables --------------
@@ -355,13 +353,11 @@ def simulate_analytical_Euler(R_surf, M_surf, P_surf, element, N, theta, output_
     data[0,2] = P_surf
 
     # ------------- Run simulation --------------
-    print(f'start analytical {element}')
+    print(f'start analytical {element} (Euler)')
     for i in range(N):
         r1 = r_grid[i]
         r2 = r_grid[i+1]
         
-        if r2 == 0.0: r2 = 1e-6 # handle div by 0 error
-
         m1 = data[i,1] 
         P1 = data[i,2]
         
@@ -415,7 +411,7 @@ def simulate_analytical_ivp(R_surf, M_surf, P_surf, method, element, N, theta, o
     data[0,2] = P_surf
 
     # ------------- Run simulation --------------
-    print(f'start analytical ({method})')
+    print(f'start analytical {element} ({method})')
     
     # Define the system of ODEs
     def system_of_ODEs(r, y):
@@ -658,16 +654,16 @@ def EoS_tabulated_H2O(P, T, interpolator):
 
 def simulate_tabulated_Euler(R_surf, M_surf, P_surf, T_surf, element, filename, N, theta, output_name, show_plot=False):
     '''
-        Prameters:
-            R_surf: [cm] radius of planet
-            M_surf: [g] total mass of planet
-            P_surf: [dyne/cm^2] surface pressure of planet
-            T_surf: [K] surface temperature of planet
-            element: 'H', or 'H2O'
-            filename: path to tabulated data
-            N: number of steps
-            theta: strech factor -> higher = r_grid is more dense close to the surface
-            output_name: name for data and plot file
+    Prameters:
+        R_surf: [cm] radius of planet
+        M_surf: [g] total mass of planet
+        P_surf: [dyne/cm^2] surface pressure of planet
+        T_surf: [K] surface temperature of planet
+        element: 'H', or 'H2O'
+        filename: path to tabulated data
+        N: number of steps
+        theta: strech factor -> higher = r_grid is more dense close to the surface
+        output_name: name for data and plot file
     '''
     # ------------- look up tables --------------
     if element == 'H':
@@ -713,14 +709,12 @@ def simulate_tabulated_Euler(R_surf, M_surf, P_surf, T_surf, element, filename, 
     data[0,2] = P_surf
     data[0,5] = T_surf
 
-    # ------------- run simulation --------------
-    print(f'start tabulated {element}')
+    # ------------- Run simulation --------------
+    print(f'start tabulated {element} (Euler)')
     for i in range(N):
         r1 = r_grid[i]
         r2 = r_grid[i+1]
         
-        if r2 == 0.0: r2 = 1e-6 # handle div by 0 error
-
         m1 = data[i,1] 
         P1 = data[i,2]
         T1 = data[i,5]
@@ -735,6 +729,9 @@ def simulate_tabulated_Euler(R_surf, M_surf, P_surf, T_surf, element, filename, 
         data[i,3] = rho
         
         # ---------- Calculate derivatives ----------
+        if r2 < 1e-10: # handle div by 0 error
+            r2 = 1e-10 
+
         dm_dr = 4 * np.pi * r1**2 * rho
         dP_dr = -G * m1 * rho / r1**2
         
@@ -774,8 +771,10 @@ def simulate_tabulated_Euler(R_surf, M_surf, P_surf, T_surf, element, filename, 
         # -------- Check if data makes sense --------
         if P2 < 0.0 or T2 < 0.0:
             print('>'*25, 'ALERT', '<'*25)
-            if P2 < 0.0: print(f'negative pressure at {i+1}/{N}')
-            else: print(f'negative temperature at {i+1}/{N}')
+            if P2 < 0.0: 
+                print(f'negative pressure at {i+1}/{N}')
+            else: 
+                print(f'negative temperature at {i+1}/{N}')
             break
             
         if m2 < 0.0:
@@ -795,6 +794,203 @@ def simulate_tabulated_Euler(R_surf, M_surf, P_surf, T_surf, element, filename, 
     # ------------ Moment of Inertia ------------
     calculate_normalised_MoI(data, M_surf, R_surf)
 
+    # ----------------- Save data ---------------
+    save_data(data, N, output_name)
+    plot_data(data, N, output_name, show_plot=show_plot)
+
+def simulate_tabulated_ivp(R_surf, M_surf, P_surf, T_surf, method, element, filename, N, theta, output_name, show_plot=False):
+    '''    
+    Parameters:
+        R_surf: [cm] radius of planet
+        M_surf: [g] total mass of planet
+        P_surf: [dyne/cm^2] surface pressure of planet
+        T_surf: [K] surface temperature of planet
+        method: ode solver 'RK45', 'DOP853', 'Radau'
+        element: 'H', or 'H2O'
+        filename: path to tabulated data
+        N: number of steps
+        theta: stretch factor -> higher = r_grid is more dense close to the surface
+        output_name: name for data and plot file
+    '''
+    # ------------- look up tables --------------
+    if element == 'H':
+        columns = [
+            'log_T', 'log_P', 'log_rho', 'log_U', 'log_s', 
+            'dlrho_dlT_P', 'dlrho_dlP_T', 'dlS_dlT_P', 'dlS_dlP_T', 'grad_ad'
+        ]
+
+        T_vals, P_vals, rho_3D, grad_ad_3D = parse_EoS_H(filename, columns)
+        interpolator_rho = RegularGridInterpolator((T_vals, P_vals), rho_3D)
+        interpolator_grad_ad = RegularGridInterpolator((T_vals, P_vals), grad_ad_3D)
+    elif element == 'H2O':
+        if 'pt' in filename:
+            columns = [
+            'press', 'temp', 'rho', 'ad_grad', 's', 
+            'u', 'c', 'mmw', 'x_ion', 'x_d', 'phase'
+        ]
+        elif 'rhot' in filename:
+            columns = [
+            'rho', 'temp', 'press', 'ad_grad', 's', 
+            'u', 'c', 'mmw', 'x_ion', 'x_d', 'phase'
+        ]
+        elif 'rhou' in filename:
+            columns = [
+            'rho', 'u', 'press', 'temp', 'ad_grad', 's', 
+            'w', 'mmw', 'x_ion', 'x_d', 'phase'
+        ]
+        else:
+            print(f'invalid file: {filename}')
+
+        T_vals, P_vals, rho_3D, grad_ad_3D = parse_EoS_H2O(filename, columns)
+        interpolator_rho = RegularGridInterpolator((T_vals, P_vals), rho_3D)
+        interpolator_grad_ad = RegularGridInterpolator((T_vals, P_vals), grad_ad_3D)
+    else:
+        print(f'invalid element: {element}')
+        return
+
+    # ------------ inital conditions ------------
+    r_grid, data = create_grids(R_surf, N, theta)
+
+    data[0,0] = R_surf
+    data[0,1] = M_surf
+    data[0,2] = P_surf
+    data[0,5] = T_surf
+
+    # ------------- Run simulation --------------
+    print(f'start tabulated {element} ({method})')
+    
+    # Define the system of ODEs
+    def system_of_ODEs(r, y):
+        m, P, T = y
+        
+        # Prevent numerical issues near center
+        if r < 1e-10:
+            r = 1e-10
+        
+        # ----------------- EoS -----------------
+        if element == 'H':
+            rho = EoS_tabulated_H(P, T, interpolator_rho)
+        elif element == 'H2O':
+            rho = EoS_tabulated_H2O(P, T, interpolator_rho)
+        # ---------------------------------------
+        
+        # ODEs
+        dm_dr = 4 * np.pi * r**2 * rho
+        dP_dr = -G * m * rho / r**2
+
+        # -------------- Find dT_dr -------------
+        if element == 'H':
+            P_query = P * 1e-10 # dyne/cm^2 -> GPa
+            P_query = np.log10(P_query)
+            T_query = np.log10(T) # K
+
+            if T_query < min(T_vals) or  max(T_vals) < T_query:
+                T_query = np.clip(T_query, min(T_vals), max(T_vals))
+
+            if P_query < min(P_vals) or max(P_vals) < P_query:
+                P_query = np.clip(P_query, min(P_vals), max(P_vals))
+
+            grad_ad = interpolator_grad_ad([T_query, P_query])[0]
+
+        elif element == 'H2O':
+            P_query = P * 0.1 # dyne/cm^2 -> Pa
+            T_query = T # K
+
+            if T_query < min(T_vals) or  max(T_vals) < T_query:
+                T_query = np.clip(T_query, min(T_vals), max(T_vals))
+
+            if P_query < min(P_vals) or max(P_vals) < P_query:
+                P_query = np.clip(P_query, min(P_vals), max(P_vals))
+
+            grad_ad = interpolator_grad_ad([T_query, P_query])[0]
+
+        dT_dr = T/P * dP_dr * grad_ad # = T2 - T1
+
+        return [dm_dr, dP_dr, dT_dr]
+    
+    # Define events to stop integration
+    def negative_mass_event(r, y):
+        return y[0]  # Stop when mass becomes negative
+    negative_mass_event.terminal = True
+    negative_mass_event.direction = -1
+
+    def negative_pressure_event(r, y):
+        return y[1]  # Stop when pressure becomes negative
+    negative_pressure_event.terminal = True
+    negative_pressure_event.direction = -1
+    
+    def negative_temperature_event(r, y):
+        return y[2]  # Stop when temperature becomes negative
+    negative_temperature_event.terminal = True
+    negative_temperature_event.direction = -1
+    
+    # Solve from surface to center
+    r_span = (r_grid[0], r_grid[-1])
+    
+    # Set tolerances based on method
+    if method == 'DOP853':
+        rtol = 1e-10
+        atol = 1e-12
+    else:
+        rtol = 1e-8
+        atol = 1e-10
+    
+    sol = solve_ivp(
+        system_of_ODEs,
+        r_span,
+        [M_surf, P_surf, T_surf],
+        method=method,
+        t_eval=r_grid,
+        events=[negative_mass_event, negative_pressure_event, negative_temperature_event],
+        rtol=rtol,
+        atol=atol,
+        max_step=np.inf  # Let the solver choose step size
+    )
+    
+    if sol.status == 1:  # Terminated by event
+        if len(sol.t_events[0]) > 0:
+            print(f' aborted at step {len(sol.t)}/{N}')
+        elif len(sol.t_events[1]) > 0:
+            print(f'>'*25, 'ALERT', '<'*25)
+            print(f' negative pressure at step {len(sol.t)}/{N}')
+        elif len(sol.t_events[2]) > 0:
+            print(f'>'*25, 'ALERT', '<'*25)
+            print(f' negative temperature at step {len(sol.t)}/{N}')
+    elif sol.status == -1:
+        print(f' Integration failed at step {len(sol.t)}/{N}')
+        return None
+    
+    if sol.status == 0 or sol.status == 1: # success or terminated early
+        # Store the solution
+        n_points = len(sol.t)
+
+        # Trim data array to actual size
+        data = data[:n_points]
+        
+        data[:,0] = sol.t     # radius
+        data[:,1] = sol.y[0]  # mass
+        data[:,2] = sol.y[1]  # pressure
+        data[:,5] = sol.y[2]  # temperature
+
+        # Trim data array to actual size
+        if data[:,0][-1] == 0.0:
+            data = data[:-1]
+
+    # ----------------- Density -----------------
+    for i, (P, T) in enumerate(zip(data[:,2], data[:,5])):
+
+        # ----------------- EoS -----------------
+        if element == 'H':
+            rho = EoS_tabulated_H(P, T, interpolator_rho)
+        elif element == 'H2O':
+            rho = EoS_tabulated_H2O(P, T, interpolator_rho)
+        # ---------------------------------------
+
+        data[i,3] = rho
+    
+    # ------------ Moment of Inertia ------------
+    calculate_normalised_MoI(data, M_surf, R_surf)
+    
     # ----------------- Save data ---------------
     save_data(data, N, output_name)
     plot_data(data, N, output_name, show_plot=show_plot)
@@ -963,15 +1159,16 @@ def solve_ivp_with_events(system_func, r_grid, y0, method, N, data):
     """
     
     # Define events to stop integration
-    def negative_pressure_event(r, y):
-        return y[1]  # Stop when pressure becomes negative
-    negative_pressure_event.terminal = True
-    negative_pressure_event.direction = -1
     
     def negative_mass_event(r, y):
         return y[0]  # Stop when mass becomes negative
     negative_mass_event.terminal = True
     negative_mass_event.direction = -1
+
+    def negative_pressure_event(r, y):
+        return y[1]  # Stop when pressure becomes negative
+    negative_pressure_event.terminal = True
+    negative_pressure_event.direction = -1
     
     # Solve from surface to center
     r_span = (r_grid[0], r_grid[-1])
@@ -990,7 +1187,7 @@ def solve_ivp_with_events(system_func, r_grid, y0, method, N, data):
         y0,
         method=method,
         t_eval=r_grid,
-        events=[negative_pressure_event, negative_mass_event],
+        events=[negative_mass_event, negative_pressure_event],
         rtol=rtol,
         atol=atol,
         max_step=np.inf  # Let the solver choose step size
@@ -998,10 +1195,10 @@ def solve_ivp_with_events(system_func, r_grid, y0, method, N, data):
     
     if sol.status == 1:  # Terminated by event
         if len(sol.t_events[0]) > 0:
+            print(f' aborted at step {len(sol.t)}/{N}')
+        elif len(sol.t_events[1]) > 0:
             print(f'>'*25, 'ALERT', '<'*25)
             print(f' negative pressure at step {len(sol.t)}/{N}')
-        elif len(sol.t_events[1]) > 0:
-            print(f' aborted at step {len(sol.t)}/{N}')
     elif sol.status == -1:
         print(f' Integration failed at step {len(sol.t)}/{N}')
         return None
@@ -1070,7 +1267,6 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, solver_meth
         T_surface = 288     # K     
 
     # ---------------- References ---------------
-    # https://ssd.jpl.nasa.gov/planets/phys_par.html
     # [A]   Archinal, B.A. et al. 2018. "Report of the IAU/IAG Working Group on cartographic coordinates and rotational elements: 2015" Celestial Mech. Dyn. Astr. 130:22.
     # [B]   https://doi.org/10.1007%2Fs10569-007-9072-y
     # [C]   https://ui.adsabs.harvard.edu/abs/1992AJ....103.2068J/abstract
@@ -1108,7 +1304,7 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, solver_meth
                 P_surface,
                 N=N,
                 theta=theta,
-                output_name=f'{planet}_02_polytropic_N_{N}_theta_{theta}'
+                output_name=f'{planet}_02_polytropic_Euler_theta_{theta}'
             )
         if 3 in EoS:
             simulate_analytical_Euler(
@@ -1118,7 +1314,7 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, solver_meth
                 element='Fe',
                 N=N,
                 theta=theta,
-                output_name=f'{planet}_03_analytical_Fe_N_{N}_theta_{theta}'
+                output_name=f'{planet}_03_analytical_Fe_Euler_theta_{theta}'
             )
         if 4 in EoS:
             simulate_analytical_Euler(
@@ -1128,7 +1324,7 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, solver_meth
                 element='MgSiO3',
                 N=N,
                 theta=theta,
-                output_name=f'{planet}_04_analytical_MgSiO3_N_{N}_theta_{theta}'
+                output_name=f'{planet}_04_analytical_MgSiO3_Euler_theta_{theta}'
             )
         if 5 in EoS:
             simulate_tabulated_Euler(
@@ -1140,7 +1336,7 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, solver_meth
                 filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv',
                 N=N,
                 theta=theta,
-                output_name=f'{planet}_05_tabulated_H_N_{N}_theta_{theta}'
+                output_name=f'{planet}_05_tabulated_H_Euler_theta_{theta}'
             )
         if 6 in EoS:
             simulate_tabulated_Euler(
@@ -1152,9 +1348,8 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, solver_meth
                 filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
                 N=N,
                 theta=theta,
-                output_name=f'{planet}_06_tabulated_H2O_N_{N}_theta_{theta}'
+                output_name=f'{planet}_06_tabulated_H2O_Euler_theta_{theta}'
             )
-    
     else:
         if 1 in EoS:
             simulate_ideal_gas_ivp(
@@ -1165,9 +1360,8 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, solver_meth
                 solver_method,
                 N=N,
                 theta=theta,
-                output_name=f'{planet}_01_ideal_gas_Euler_theta_{theta}'
+                output_name=f'{planet}_01_ideal_gas_{solver_method}_theta_{theta}'
             )
-            
         if 2 in EoS:
             simulate_polytropic_ivp(
                 R, 
@@ -1178,7 +1372,6 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, solver_meth
                 theta=theta,
                 output_name=f'{planet}_02_polytropic_{solver_method}_theta_{theta}'
             )
-
         if 3 in EoS:
             simulate_analytical_ivp(
                 R, 
@@ -1188,9 +1381,8 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, solver_meth
                 element='Fe',
                 N=N,
                 theta=theta,
-                output_name=f'{planet}_03_analytical_Fe_N_{N}_theta_{theta}'
+                output_name=f'{planet}_03_analytical_Fe_{solver_method}_theta_{theta}'
             )
-
         if 4 in EoS:
             simulate_analytical_ivp(
                 R, 
@@ -1200,44 +1392,41 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, solver_meth
                 element='MgSiO3',
                 N=N,
                 theta=theta,
-                output_name=f'{planet}_04_analytical_MgSiO3_N_{N}_theta_{theta}'
+                output_name=f'{planet}_04_analytical_MgSiO3_{solver_method}_theta_{theta}'
             )
-
-        # if 5 in EoS:
-        #     simulate_tabulated_ivp(
-        #         R, 
-        #         M,
-        #         P_surface,
-        #         T_surface,
-        #         solver_method,
-        #         element='H',
-        #         filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv',
-        #         N=N,
-        #         theta=theta,
-        #         output_name=f'{planet}_05_tabulated_H_N_{N}_theta_{theta}'
-        #     )
-
-        # if 6 in EoS:
-        #     simulate_tabulated_ivp(
-        #         R, 
-        #         M,
-        #         P_surface,
-        #         T_surface,
-        #         solver_method,
-        #         element='H2O',
-        #         filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
-        #         N=N,
-        #         theta=theta,
-        #         output_name=f'{planet}_06_tabulated_H2O_N_{N}_theta_{theta}'
-        #     )
+        if 5 in EoS:
+            simulate_tabulated_ivp(
+                R, 
+                M,
+                P_surface,
+                T_surface,
+                solver_method,
+                element='H',
+                filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv',
+                N=N,
+                theta=theta,
+                output_name=f'{planet}_05_tabulated_H_{solver_method}_theta_{theta}'
+            )
+        if 6 in EoS:
+            simulate_tabulated_ivp(
+                R, 
+                M,
+                P_surface,
+                T_surface,
+                solver_method,
+                element='H2O',
+                filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
+                N=N,
+                theta=theta,
+                output_name=f'{planet}_06_tabulated_H2O_{solver_method}_theta_{theta}'
+            )
 
 # plt.show()
 if __name__ == '__main__':
     N = 100
     theta = 5
-    method = 'RK45'
+    method = 'RK45' # 'Euler', 'RK45', 'DOP853', 'Radau' 
 
-    # TODO: RK4
     # TODO: m grid
     # TODO: what is wrong with Silicat (i.e. BME4)?
 
@@ -1246,14 +1435,12 @@ if __name__ == '__main__':
     
     C_ideal_gas = 1.96e12 # (cm^2/g)^2 * dyne/cm^2 TODO
 
-    # simulate_planet('Jupiter', [6])
-
     # simulate_planet('Earth',   [1, 2, 3, 4, 5, 6])
     # simulate_planet('Jupiter', [1, 2, 3, 4, 5, 6])
     # simulate_planet('Saturn',  [1, 2, 3, 4, 5, 6])
     # simulate_planet('Uranus',  [1, 2, 3, 4, 5, 6])
 
-    simulate_planet('Earth',   [4], solver_method=method)
-    simulate_planet('Jupiter', [4], solver_method=method)
-    simulate_planet('Saturn',  [4], solver_method=method)
-    simulate_planet('Uranus',  [4], solver_method=method)
+    simulate_planet('Earth',   [5, 6], solver_method=method)
+    # simulate_planet('Jupiter', [5, 6], solver_method=method)
+    # simulate_planet('Saturn',  [5, 6], solver_method=method)
+    # simulate_planet('Uranus',  [5, 6], solver_method=method)
