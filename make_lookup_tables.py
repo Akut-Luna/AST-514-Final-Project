@@ -20,14 +20,14 @@ def EoS_BME4(eta, K0, K0_prime, K0_double_prime):
 if __name__ == '__main__':
 
     N = 100000
-    rho0 = 1e-6 # Mg/m^3 = g/cm^3
-    rho1 = 100  # Mg/m^3 = g/cm^3
-
-    rho_grid = np.linspace(rho0, rho1, N)
+    rho_min = 1e2   # kg/m^3
+    rho_max = 1e8   # kg/m^3 
+    rho_grid = np.logspace(2, 8, N)  # Using log spacing for better coverage
+    rho_grid = rho_grid * 1e-3 # kg/m^3 -> g/cm^3
     
-    theta = 1
-    rho_grid = np.linspace(0, 1, N)
-    rho_grid = rho1 * (1 - rho_grid**theta) + 1e-6  # power-law stretched coordinates
+    # theta = 1
+    # rho_grid = np.linspace(0, 1, N)
+    # rho_grid = rho1 * (1 - rho_grid**theta) + 1e-6  # power-law stretched coordinates
 
     # Iron
     K0 = 156.2 # GPa
@@ -70,7 +70,7 @@ if __name__ == '__main__':
         data[i,1] = rho
 
     data = data[data[:, 0].argsort()] # sort by pressure
-    data = abs(data)
+    # data = abs(data)
     # data = data[data[:, 0] > 0]       # disregard negative pressures
 
     header = 'P [GPa], rho [g/m^3]'
