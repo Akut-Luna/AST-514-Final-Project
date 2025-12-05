@@ -152,6 +152,73 @@ def simulate_ideal_gas_ivp(R_surf, M_surf, P_surf, method, N, theta, output_name
     if save_plot:
         plot_data(data, N, output_name, sim_method=method, show_plot=show_plot)
 
+def simulate_ideal_gas_ivp_m_grid(R_surf, M_surf, P_surf, method, N, theta, output_name, show_plot=False, save_plot=True):
+    '''    
+    Parameters:
+        R_surf: [cm] radius of planet
+        M_surf: [g] total mass of planet
+        P_surf: [dyne/cm^2] surface pressure of planet
+        method: ode solver 'RK45', 'DOP853', 'Radau'
+        N: number of steps
+        theta: stretch factor -> higher = r_grid is more dense close to the surface
+        output_name: name for data and plot file
+    '''
+    
+    # ------------ Initial conditions ------------
+    m_grid, data = create_grids(M_surf, N, theta)
+    
+    data[0,0] = R_surf
+    data[0,1] = M_surf
+    data[0,2] = P_surf
+    
+    # ------------- Run simulation --------------
+    print(f'start ideal gas ({method})')
+    
+    # Define the system of ODEs
+    def system_of_ODEs(m, y):
+        r, P = y
+        
+        # Prevent numerical issues near center
+        if m < 1e-10:
+            m = 1e-10
+        
+        # ----------------- EoS -----------------
+        rho = EoS_ideal_gas(P, C_ideal_gas)
+        # ---------------------------------------
+        
+        # ODEs
+        dr_dm = 1.0 / (4 * np.pi * r**2 * rho)
+        dP_dm = -G * m / (4 * np.pi * r**4)
+        
+        return [dr_dm, dP_dm]
+    
+    # Solve the system using solve_ivp
+    data = solve_ivp_with_events_m_grid(
+        system_of_ODEs,
+        m_grid,
+        [R_surf, P_surf],
+        method,
+        N,
+        data
+    )
+    
+    # ----------------- Density -----------------
+    for i, P in enumerate(data[:,2]):
+
+        # ----------------- EoS -----------------
+        rho = EoS_ideal_gas(P, C_ideal_gas)
+        # ---------------------------------------
+
+        data[i,3] = rho
+    
+    # ------------ Moment of Inertia ------------
+    calculate_normalised_MoI(data, M_surf, R_surf)
+    
+    # ----------------- Save data ---------------
+    save_data(data, N, output_name, grid_type='m')
+    if save_plot:
+        plot_data(data, N, output_name, grid_type='m', sim_method=method, show_plot=show_plot)
+
 # ================== polytropic =================
 def EoS_polytropic(P):
     '''
@@ -1050,22 +1117,23 @@ def calculate_normalised_MoI(data, M_surf, R_surf):
     # Save (reverse back to original order)
     data[:,4] = MoIs[::-1]
 
-def create_grids(R, N, theta):
-    # ------------------- r_grid --------------------
+def create_grids(max_val, N, theta):
+    # -------------------- grid ---------------------
     '''
-    We want to sampe more r values closer to the surface because P changes there more rapidly. 
+    r_grid: We want to sampe more r values closer to the surface because P changes there more rapidly. 
+    m_grid: We want to sampe more m values closer to the center because 1/r^4 blows up. 
     '''
     s = np.linspace(0.0, 1.0, N+1)          # normalized coordinates
-    r_grid = R * (1 - s**theta)    # power-law stretched coordinates
+    grid = max_val * (1 - s**theta)    # power-law stretched coordinates
 
     # ---------------- prepare data -----------------
     data = np.zeros((N+1,6)) # [r, m, p, rho, moi, T]
-    return r_grid, data
+    return grid, data
 
-def plot_data(data, N, filename, sim_method='Euler', show_plot=False):
+def plot_data(data, N, filename, grid_type='r', sim_method='Euler', show_plot=False):
 
     # ------------------ path -------------------
-    folder_path = os.path.join('plots', f'N={N}')
+    folder_path = os.path.join('plots', f'{grid_type}_grid', f'N={N}')
     os.makedirs(folder_path, exist_ok=True)
     file_path = os.path.join(folder_path, f'{filename}.pdf')
 
@@ -1129,9 +1197,9 @@ def plot_data(data, N, filename, sim_method='Euler', show_plot=False):
         plt.show()
     plt.close()
 
-def save_data(data, N, filename):
+def save_data(data, N, filename, grid_type='r'):
     header = 'r [m], m [kg], p [Pa], rho [kg/m^3], I_norm [1], T [K]'
-    folder_path = os.path.join('data', 'simulation_results', f'N={N}')
+    folder_path = os.path.join('data', 'simulation_results', f'{grid_type}_grid', f'N={N}')
     os.makedirs(folder_path, exist_ok=True)
     path = os.path.join(folder_path, f'{filename}.csv')
     np.savetxt(path, data, delimiter=',', header=header)
@@ -1229,6 +1297,7 @@ def solve_ivp_with_events(system_func, r_grid, y0, method, N, data):
             print(f' negative pressure at step {len(sol.t)}/{N}')
     elif sol.status == -1:
         print(f' Integration failed at step {len(sol.t)}/{N}: {sol.message}')
+
     
     if sol.status == 0 or sol.status == 1: # success or terminated early
         # Store the solution
@@ -1247,7 +1316,85 @@ def solve_ivp_with_events(system_func, r_grid, y0, method, N, data):
     
     return data
 
-def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, solver_method='RK45', save_plot=False):
+def solve_ivp_with_events_m_grid(system_func, m_grid, y0, method, N, data):
+    """
+    Wrapper for solve_ivp that handles events and integration.
+    This is reusable for different EoS systems.
+    
+    Parameters:
+        system_func: function defining the ODEs
+        m_grid: mass grid points
+        y0: initial conditions [m0, P0, ...]
+        method: ODE solver method
+        N: number of steps
+        data: (N, 6) array to save the data in (passed by reference)
+    
+    Returns:
+        data: (N, 6) array with R, M, and P filled in
+    """
+    
+    # Define events to stop integration
+    
+    def negative_radius_event(m, y):
+        return y[0]  # Stop when radius becomes negative
+    negative_radius_event.terminal = True
+    negative_radius_event.direction = -1
+
+    def negative_pressure_event(m, y):
+        return y[1]  # Stop when pressure becomes negative
+    negative_pressure_event.terminal = True
+    negative_pressure_event.direction = -1
+    
+    # Solve from surface to center
+    m_span = (m_grid[0], m_grid[-1])
+    
+    # Set tolerances based on method
+    if method == 'DOP853':
+        rtol = 1e-10
+        atol = 1e-12
+    else:
+        rtol = 1e-8
+        atol = 1e-10
+    
+    sol = solve_ivp(
+        system_func,
+        m_span,
+        y0,
+        t_eval=m_grid,
+        method=method,
+        events=[negative_radius_event, negative_pressure_event],
+        rtol=rtol,
+        atol=atol,
+        dense_output=True,
+        max_step=np.inf  # Let the solver choose step size
+    )
+    
+    if sol.status == 1:  # Terminated by event
+        if len(sol.t_events[0]) > 0:
+            print(f' aborted at step {len(sol.t)}/{N}')
+        elif len(sol.t_events[1]) > 0:
+            print(f'>'*25, 'ALERT', '<'*25)
+            print(f' negative pressure at step {len(sol.t)}/{N}')
+    elif sol.status == -1:
+        print(f' Integration failed at step {len(sol.t)}/{N}: {sol.message}')
+    
+    # -------- In any case save the data --------
+    n_points = len(sol.t)
+
+    # Trim data array to actual size
+    data = data[:n_points]
+    
+    data[:,0] = sol.y[0]  # radii
+    data[:,1] = sol.t     # mass
+    data[:,2] = sol.y[1]  # pressure
+
+    # Trim data array to actual size
+    if data[:,0][-1] == 0.0:
+        data = data[:-1]
+    
+    return data
+
+def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, grid_type='r', solver_method='RK45', save_plot=False):
     '''
     Parameters:
         planet: name (Earth, Jupiter, Saturn and Uranus don't require parameters)
@@ -1321,150 +1468,298 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, solver_meth
 
     # --------------- simulations ---------------
     print('\n'+('='*10), planet, '='*10)
-    if solver_method == 'Euler':
-        if 1 in EoS:
-            simulate_ideal_gas_Euler(
-                R, 
-                M,
-                P_surface,
-                N=N,
-                theta=theta,
-                output_name=f'{planet}_01_ideal_gas_Euler_theta_{theta}', 
-                save_plot=save_plot
-            )
-        if 2 in EoS:
-            simulate_polytropic_Euler(
-                R, 
-                M,
-                P_surface,
-                N=N,
-                theta=theta,
-                output_name=f'{planet}_02_polytropic_Euler_theta_{theta}', 
-                save_plot=save_plot
-            )
-        if 3 in EoS:
-            simulate_analytical_Euler(
-                R, 
-                M,
-                P_surface,
-                element='Fe',
-                N=N,
-                theta=theta,
-                output_name=f'{planet}_03_analytical_Fe_Euler_theta_{theta}', 
-                save_plot=save_plot
-            )
-        if 4 in EoS:
-            simulate_analytical_Euler(
-                R, 
-                M,
-                P_surface,
-                element='MgSiO3',
-                N=N,
-                theta=theta,
-                output_name=f'{planet}_04_analytical_MgSiO3_Euler_theta_{theta}', 
-                save_plot=save_plot
-            )
-        if 5 in EoS:
-            simulate_tabulated_Euler(
-                R, 
-                M,
-                P_surface,
-                T_surface,
-                element='H',
-                filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv',
-                N=N,
-                theta=theta,
-                output_name=f'{planet}_05_tabulated_H_Euler_theta_{theta}', 
-                save_plot=save_plot
-            )
-        if 6 in EoS:
-            simulate_tabulated_Euler(
-                R, 
-                M,
-                P_surface,
-                T_surface,
-                element='H2O',
-                filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
-                N=N,
-                theta=theta,
-                output_name=f'{planet}_06_tabulated_H2O_Euler_theta_{theta}', 
-                save_plot=save_plot
-            )
+    if grid_type == 'r':
+        if solver_method == 'Euler':
+            if 1 in EoS:
+                simulate_ideal_gas_Euler(
+                    R, 
+                    M,
+                    P_surface,
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_01_ideal_gas_Euler_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 2 in EoS:
+                simulate_polytropic_Euler(
+                    R, 
+                    M,
+                    P_surface,
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_02_polytropic_Euler_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 3 in EoS:
+                simulate_analytical_Euler(
+                    R, 
+                    M,
+                    P_surface,
+                    element='Fe',
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_03_analytical_Fe_Euler_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 4 in EoS:
+                simulate_analytical_Euler(
+                    R, 
+                    M,
+                    P_surface,
+                    element='MgSiO3',
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_04_analytical_MgSiO3_Euler_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 5 in EoS:
+                simulate_tabulated_Euler(
+                    R, 
+                    M,
+                    P_surface,
+                    T_surface,
+                    element='H',
+                    filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv',
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_05_tabulated_H_Euler_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 6 in EoS:
+                simulate_tabulated_Euler(
+                    R, 
+                    M,
+                    P_surface,
+                    T_surface,
+                    element='H2O',
+                    filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_06_tabulated_H2O_Euler_theta_{theta}',
+                    save_plot=save_plot
+                )
+        else:
+            if 1 in EoS:
+                simulate_ideal_gas_ivp(
+                    R, 
+                    M,
+                    P_surface,
+                    solver_method,
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_01_ideal_gas_{solver_method}_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 2 in EoS:
+                simulate_polytropic_ivp(
+                    R, 
+                    M,
+                    P_surface,
+                    solver_method,
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_02_polytropic_{solver_method}_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 3 in EoS:
+                simulate_analytical_ivp(
+                    R, 
+                    M,
+                    P_surface,
+                    solver_method,
+                    element='Fe',
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_03_analytical_Fe_{solver_method}_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 4 in EoS:
+                simulate_analytical_ivp(
+                    R, 
+                    M,
+                    P_surface,
+                    solver_method,
+                    element='MgSiO3',
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_04_analytical_MgSiO3_{solver_method}_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 5 in EoS:
+                simulate_tabulated_ivp(
+                    R, 
+                    M,
+                    P_surface,
+                    T_surface,
+                    solver_method,
+                    element='H',
+                    filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv',
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_05_tabulated_H_{solver_method}_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 6 in EoS:
+                simulate_tabulated_ivp(
+                    R, 
+                    M,
+                    P_surface,
+                    T_surface,
+                    solver_method,
+                    element='H2O',
+                    filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_06_tabulated_H2O_{solver_method}_theta_{theta}',
+                    save_plot=save_plot
+                )
+    elif grid_type == 'm':
+        if solver_method == 'Euler':
+            if 1 in EoS:
+                simulate_ideal_gas_Euler(
+                    R, 
+                    M,
+                    P_surface,
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_01_ideal_gas_Euler_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 2 in EoS:
+                simulate_polytropic_Euler(
+                    R, 
+                    M,
+                    P_surface,
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_02_polytropic_Euler_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 3 in EoS:
+                simulate_analytical_Euler(
+                    R, 
+                    M,
+                    P_surface,
+                    element='Fe',
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_03_analytical_Fe_Euler_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 4 in EoS:
+                simulate_analytical_Euler(
+                    R, 
+                    M,
+                    P_surface,
+                    element='MgSiO3',
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_04_analytical_MgSiO3_Euler_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 5 in EoS:
+                simulate_tabulated_Euler(
+                    R, 
+                    M,
+                    P_surface,
+                    T_surface,
+                    element='H',
+                    filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv',
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_05_tabulated_H_Euler_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 6 in EoS:
+                simulate_tabulated_Euler(
+                    R, 
+                    M,
+                    P_surface,
+                    T_surface,
+                    element='H2O',
+                    filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_06_tabulated_H2O_Euler_theta_{theta}',
+                    save_plot=save_plot
+                )
+        else:
+            if 1 in EoS:
+                simulate_ideal_gas_ivp_m_grid(
+                    R, 
+                    M,
+                    P_surface,
+                    solver_method,
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_01_ideal_gas_{solver_method}_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 2 in EoS:
+                simulate_polytropic_ivp(
+                    R, 
+                    M,
+                    P_surface,
+                    solver_method,
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_02_polytropic_{solver_method}_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 3 in EoS:
+                simulate_analytical_ivp(
+                    R, 
+                    M,
+                    P_surface,
+                    solver_method,
+                    element='Fe',
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_03_analytical_Fe_{solver_method}_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 4 in EoS:
+                simulate_analytical_ivp(
+                    R, 
+                    M,
+                    P_surface,
+                    solver_method,
+                    element='MgSiO3',
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_04_analytical_MgSiO3_{solver_method}_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 5 in EoS:
+                simulate_tabulated_ivp(
+                    R, 
+                    M,
+                    P_surface,
+                    T_surface,
+                    solver_method,
+                    element='H',
+                    filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv',
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_05_tabulated_H_{solver_method}_theta_{theta}',
+                    save_plot=save_plot
+                )
+            if 6 in EoS:
+                simulate_tabulated_ivp(
+                    R, 
+                    M,
+                    P_surface,
+                    T_surface,
+                    solver_method,
+                    element='H2O',
+                    filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
+                    N=N,
+                    theta=theta,
+                    output_name=f'{planet}_06_tabulated_H2O_{solver_method}_theta_{theta}',
+                    save_plot=save_plot
+                )
     else:
-        if 1 in EoS:
-            simulate_ideal_gas_ivp(
-                R, 
-                M,
-                P_surface,
-                solver_method,
-                N=N,
-                theta=theta,
-                output_name=f'{planet}_01_ideal_gas_{solver_method}_theta_{theta}', 
-                save_plot=save_plot
-            )
-        if 2 in EoS:
-            simulate_polytropic_ivp(
-                R, 
-                M,
-                P_surface,
-                solver_method,
-                N=N,
-                theta=theta,
-                output_name=f'{planet}_02_polytropic_{solver_method}_theta_{theta}', 
-                save_plot=save_plot
-            )
-        if 3 in EoS:
-            simulate_analytical_ivp(
-                R, 
-                M,
-                P_surface,
-                solver_method,
-                element='Fe',
-                N=N,
-                theta=theta,
-                output_name=f'{planet}_03_analytical_Fe_{solver_method}_theta_{theta}', 
-                save_plot=save_plot
-            )
-        if 4 in EoS:
-            simulate_analytical_ivp(
-                R, 
-                M,
-                P_surface,
-                solver_method,
-                element='MgSiO3',
-                N=N,
-                theta=theta,
-                output_name=f'{planet}_04_analytical_MgSiO3_{solver_method}_theta_{theta}', 
-                save_plot=save_plot
-            )
-        if 5 in EoS:
-            simulate_tabulated_ivp(
-                R, 
-                M,
-                P_surface,
-                T_surface,
-                solver_method,
-                element='H',
-                filename='data/EoS_H/TABLEEOS_2021_TP_Y0275_v1.csv',
-                N=N,
-                theta=theta,
-                output_name=f'{planet}_05_tabulated_H_{solver_method}_theta_{theta}', 
-                save_plot=save_plot
-            )
-        if 6 in EoS:
-            simulate_tabulated_ivp(
-                R, 
-                M,
-                P_surface,
-                T_surface,
-                solver_method,
-                element='H2O',
-                filename='data/EoS_H2O/aqua_eos_pt_v1_0.dat',
-                N=N,
-                theta=theta,
-                output_name=f'{planet}_06_tabulated_H2O_{solver_method}_theta_{theta}', 
-                save_plot=save_plot
-            )
+        print('invalid grid type:', grid_type)
 
 if __name__ == '__main__':
     warning_tracker = WarningTracker()
@@ -1487,7 +1782,7 @@ if __name__ == '__main__':
         simulate_planet('Saturn',  [1, 2, 3, 4, 5, 6], solver_method=method, save_plot=False)
         simulate_planet('Uranus',  [1, 2, 3, 4, 5, 6], solver_method=method, save_plot=False)
 
-    # simulate_planet('Earth',   [1], solver_method=method)
-    # simulate_planet('Jupiter', [1], solver_method=method)
-    # simulate_planet('Saturn',  [1], solver_method=method)
-    # simulate_planet('Uranus',  [1], solver_method=method)
+    simulate_planet('Earth',   [1], solver_method=method, grid_type='m')
+    # simulate_planet('Jupiter', [1], solver_method=method, grid_type='m')
+    # simulate_planet('Saturn',  [1], solver_method=method, grid_type='m')
+    # simulate_planet('Uranus',  [1], solver_method=method, grid_type='m')
