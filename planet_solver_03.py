@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
 from scipy.interpolate import RegularGridInterpolator
 
-# Warning tracker to reduce spam
+# ================= reduce spam =================
 class WarningTracker:
     def __init__(self):
         self.warned = {}
