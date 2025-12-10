@@ -1130,7 +1130,7 @@ def plot_data(data, N, filename, sim_method='Euler', show_plot=False):
     plt.close()
 
 def save_data(data, N, filename):
-    header = 'r [m], m [kg], p [Pa], rho [kg/m^3], I_norm [1], T [K]'
+    header = 'r [cm], m [g], p [dyne/cm^2], rho [g/cm^3], I_norm [1], T [K]'
     folder_path = os.path.join('data', 'simulation_results', f'N={N}')
     os.makedirs(folder_path, exist_ok=True)
     path = os.path.join(folder_path, f'{filename}.csv')
@@ -1230,20 +1230,20 @@ def solve_ivp_with_events(system_func, r_grid, y0, method, N, data):
     elif sol.status == -1:
         print(f' Integration failed at step {len(sol.t)}/{N}: {sol.message}')
     
-    if sol.status == 0 or sol.status == 1: # success or terminated early
-        # Store the solution
-        n_points = len(sol.t)
+    # -------- In any case save the data --------
+    # Store the solution
+    n_points = len(sol.t)
 
-        # Trim data array to actual size
-        data = data[:n_points]
-        
-        data[:,0] = sol.t     # radius
-        data[:,1] = sol.y[0]  # mass
-        data[:,2] = sol.y[1]  # pressure
+    # Trim data array to actual size
+    data = data[:n_points]
+    
+    data[:,0] = sol.t     # radius
+    data[:,1] = sol.y[0]  # mass
+    data[:,2] = sol.y[1]  # pressure
 
-        # Trim data array to actual size
-        if data[:,0][-1] == 0.0:
-            data = data[:-1]
+    # Trim data array to actual size
+    if data[:,0][-1] == 0.0:
+        data = data[:-1]
     
     return data
 
@@ -1470,8 +1470,8 @@ if __name__ == '__main__':
     warning_tracker = WarningTracker()
     warning_tracker.suppress_spam = True
 
-    N = 100
-    theta = 5
+    N = 100000
+    theta = 1
     method = 'RK45' # 'Euler', 'RK45', 'DOP853', 'Radau' 
 
     # TODO: m grid
@@ -1481,13 +1481,4 @@ if __name__ == '__main__':
     # ----------- Physical Constants ------------
     G = 6.67430e-8  # cm^3 g^-1 s^-2
 
-    for method in ['Euler', 'RK45', 'DOP853', 'Radau' ]:
-        simulate_planet('Earth',   [1, 2, 3, 4, 5, 6], solver_method=method, save_plot=False)
-        simulate_planet('Jupiter', [1, 2, 3, 4, 5, 6], solver_method=method, save_plot=False)
-        simulate_planet('Saturn',  [1, 2, 3, 4, 5, 6], solver_method=method, save_plot=False)
-        simulate_planet('Uranus',  [1, 2, 3, 4, 5, 6], solver_method=method, save_plot=False)
-
-    # simulate_planet('Earth',   [1], solver_method=method)
-    # simulate_planet('Jupiter', [1], solver_method=method)
-    # simulate_planet('Saturn',  [1], solver_method=method)
-    # simulate_planet('Uranus',  [1], solver_method=method)
+    simulate_planet('Uranus',  [2], solver_method='RK45')
