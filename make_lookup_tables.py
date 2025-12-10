@@ -10,12 +10,23 @@ def EoS_BME(eta, K0, K0_prime):
     return P
 
 def EoS_BME4(eta, K0, K0_prime, K0_double_prime):
-    P = EoS_BME(eta, K0, K0_prime)
-    term1 = 3/2*K0 * (eta**(7/3) - eta**(5/3))
-    term2 = 3/8 * K0 * (eta**(2/3) - 1)**2
-    term3 = K0*K0_double_prime + K0_prime*(K0_prime - 7) + 143/9
-    P +=  term1 * term2 * term3 # <--- PROBLEM
-    return P
+    # P = EoS_BME(eta, K0, K0_prime)
+    # term1 = 3/2*K0 * (eta**(7/3) - eta**(5/3))
+    # term2 = 3/8 * K0 * (eta**(2/3) - 1)**2
+    # term3 = K0*K0_double_prime + K0_prime*(K0_prime - 7) + 143/9
+    # P +=  term1 * term2 * term3 # <--- PROBLEM
+    # return P
+
+    K_0 = K0
+    K_1 = K0_prime
+    K_2 = K0_double_prime
+
+    test0 = 1.5*K_0*(eta**(7./3.) - eta**(5./3.))
+    test1 = (1 + 0.75*(K_1 - 4.)*(eta**(2./3.) - 1))
+    test2 = (3./8.)*(eta**(2./3.) - 1)*(eta**(2./3.) - 1)*(K_0*K_2 + K_1*(K_1 - 7.) + 143./9.)
+    
+    return test0*(test1 + test2)
+
 
 if __name__ == '__main__':
 
@@ -23,12 +34,8 @@ if __name__ == '__main__':
     rho_min = 1e2   # kg/m^3
     rho_max = 1e8   # kg/m^3 
     rho_grid = np.logspace(2, 8, N)  # Using log spacing for better coverage
-    rho_grid = rho_grid * 1e-3 # kg/m^3 -> g/cm^3
+    rho_grid = rho_grid * 1e-3       # kg/m^3 -> g/cm^3
     
-    # theta = 1
-    # rho_grid = np.linspace(0, 1, N)
-    # rho_grid = rho1 * (1 - rho_grid**theta) + 1e-6  # power-law stretched coordinates
-
     # Iron
     K0 = 156.2 # GPa
     K0_prime = 6.08
@@ -48,13 +55,10 @@ if __name__ == '__main__':
 
     plt.figure(figsize=(12,4))
     ax1 = plt.subplot(1, 2, 1)
-    # ax1.loglog(data[:,0], data[:,1])
-    # ax1.set_xlabel('P [GPa]')
-    # ax1.set_ylabel('rho [g/cm^3]')
     ax1.loglog(data[:,0]*1e9, data[:,1]*1e3)
     ax1.set_xlabel('P [Pa]')
     ax1.set_ylabel('$\\rho$ [kg/m^3]')
-    ax1.set_title('Iron')
+    ax1.set_title('Fe')
     ax1.grid(True, alpha=0.3)
 
     # Silicat
@@ -77,13 +81,12 @@ if __name__ == '__main__':
     np.savetxt(f'data/EoS_MgSiO3/EoS_MgSiO3.csv', data, delimiter=',', header=header)
 
     ax2 = plt.subplot(1, 2, 2)
-    # ax2.loglog(data[:,0], data[:,1], '.')
-    # ax2.set_xlabel('P [GPa]')
-    # ax2.set_ylabel('rho [g/cm^3]')
-    ax2.loglog(data[:,0]*1e9, data[:,1]*1e3, '.')
+    ax2.loglog(data[:,0]*1e9, data[:,1]*1e3)
     ax2.set_xlabel('P [Pa]')
     ax2.set_ylabel('$\\rho$ [kg/m^3]')
-    ax2.set_title('Silicat')
+    ax2.set_title('MgSiO$_3$')
     ax2.grid(True, alpha=0.3)
 
+    plt.savefig('plots/plot_0_look_up_tables.pdf')
     plt.show()
+

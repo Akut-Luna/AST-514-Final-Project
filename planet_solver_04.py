@@ -77,6 +77,10 @@ def simulate_ideal_gas_Euler(R_surf, M_surf, P_surf, N, theta, output_name, show
     # -------------- Clean up data --------------
     data =  data[:-(N-i)] # the last lines contain no useful/realistic data and can be removed
 
+    
+    data[:,1] = 4/3 * np.pi * data[:,0]**3 * data[:,3] # mass fix
+
+
     # ------------ Moment of Inertia ------------
     calculate_normalised_MoI(data, M_surf, R_surf)
 
@@ -1131,7 +1135,7 @@ def simulate_tabulated_Euler(R_surf, M_surf, P_surf, T_surf, element, filename, 
         dr = r2 - r1
         m2 = m1 + dm_dr * dr
         P2 = P1 + dP_dr * dr
-        
+
         # ---------- Find next temperature ----------
         if element == 'H':
             P_query = P1 * 1e-10 # dyne/cm^2 -> GPa
@@ -1190,6 +1194,156 @@ def simulate_tabulated_Euler(R_surf, M_surf, P_surf, T_surf, element, filename, 
     save_data(data, N, output_name)
     if save_plot:
         plot_data(data, N, output_name, show_plot=show_plot)
+
+def simulate_tabulated_Euler_m_grid(R_surf, M_surf, P_surf, T_surf, element, filename, N, theta, output_name, show_plot=False, save_plot=True):
+    '''
+    Prameters:
+        R_surf: [cm] radius of planet
+        M_surf: [g] total mass of planet
+        P_surf: [dyne/cm^2] surface pressure of planet
+        T_surf: [K] surface temperature of planet
+        element: 'H', or 'H2O'
+        filename: path to tabulated data
+        N: number of steps
+        theta: strech factor -> higher = m_grid is more dense close to the surface
+        output_name: name for data and plot file
+    '''
+    global warning_tracker
+    warning_tracker.reset()
+
+    # ------------- Look up tables --------------
+    if element == 'H':
+        columns = [
+            'log_T', 'log_P', 'log_rho', 'log_U', 'log_s', 
+            'dlrho_dlT_P', 'dlrho_dlP_T', 'dlS_dlT_P', 'dlS_dlP_T', 'grad_ad'
+        ]
+
+        T_vals, P_vals, rho_3D, grad_ad_3D = parse_EoS_H(filename, columns)
+        interpolator_rho = RegularGridInterpolator((T_vals, P_vals), rho_3D)
+        interpolator_grad_ad = RegularGridInterpolator((T_vals, P_vals), grad_ad_3D)
+    elif element == 'H2O':
+        if 'pt' in filename:
+            columns = [
+            'press', 'temp', 'rho', 'ad_grad', 's', 
+            'u', 'c', 'mmw', 'x_ion', 'x_d', 'phase'
+        ]
+        elif 'rhot' in filename:
+            columns = [
+            'rho', 'temp', 'press', 'ad_grad', 's', 
+            'u', 'c', 'mmw', 'x_ion', 'x_d', 'phase'
+        ]
+        elif 'rhou' in filename:
+            columns = [
+            'rho', 'u', 'press', 'temp', 'ad_grad', 's', 
+            'w', 'mmw', 'x_ion', 'x_d', 'phase'
+        ]
+        else:
+            print(f'invalid file: {filename}')
+
+        T_vals, P_vals, rho_3D, grad_ad_3D = parse_EoS_H2O(filename, columns)
+        interpolator_rho = RegularGridInterpolator((T_vals, P_vals), rho_3D)
+        interpolator_grad_ad = RegularGridInterpolator((T_vals, P_vals), grad_ad_3D)
+    else:
+        print(f'invalid element: {element}')
+        return
+
+    # ------------ Inital conditions ------------
+    m_grid, data = create_grids(M_surf, N, theta)
+
+    data[0,0] = R_surf
+    data[0,1] = M_surf
+    data[0,2] = P_surf
+    data[0,5] = T_surf
+
+    # ------------- Run simulation --------------
+    print(f'start tabulated {element} (Euler, m-grid)')
+    for i in range(N):
+        m1 = m_grid[i]
+        m2 = m_grid[i+1]
+        
+        r1 = data[i,0] 
+        P1 = data[i,2]
+        T1 = data[i,5]
+        
+        # ------------------- EoS -------------------
+        if element == 'H':
+            rho = EoS_tabulated_H(P1, T1, interpolator_rho)
+        elif element == 'H2O':
+            rho = EoS_tabulated_H2O(P1, T1, interpolator_rho)
+        # -------------------------------------------
+        
+        data[i,3] = rho
+        
+        # ---------- Calculate derivatives ----------
+        if m2 < 1e-10: # handle div by 0 error
+            m2 = 1e-10 
+
+        dr_dm = 1.0 / (4 * np.pi * r1**2 * rho)
+        dP_dm = -G * m1 / (4 * np.pi * r1**4)
+        
+        # ------ Update values (Euler method) -------
+        dm = m2 - m1
+        r2 = r1 + dr_dm * dm
+        P2 = P1 + dP_dm * dm
+
+        # ---------- Find next temperature ----------
+        if element == 'H':
+            P_query = P1 * 1e-10 # dyne/cm^2 -> GPa
+            P_query = np.log10(P_query)
+            T_query = np.log10(T1) # K
+
+            if T_query < min(T_vals) or  max(T_vals) < T_query:
+                T_query = np.clip(T_query, min(T_vals), max(T_vals))
+
+            if P_query < min(P_vals) or max(P_vals) < P_query:
+                P_query = np.clip(P_query, min(P_vals), max(P_vals))
+
+            grad_ad = interpolator_grad_ad([T_query, P_query])[0]
+
+        elif element == 'H2O':
+            P_query = P1 * 0.1 # dyne/cm^2 -> Pa
+            T_query = T1 # K
+
+            if T_query < min(T_vals) or  max(T_vals) < T_query:
+                T_query = np.clip(T_query, min(T_vals), max(T_vals))
+
+            if P_query < min(P_vals) or max(P_vals) < P_query:
+                P_query = np.clip(P_query, min(P_vals), max(P_vals))
+
+            grad_ad = interpolator_grad_ad([T_query, P_query])[0]
+
+        T2 = T1/P1 * (P2 - P1) * grad_ad + T1
+
+        # -------- Check if data makes sense --------
+        if P2 < 0.0 or T2 < 0.0:
+            print('>'*25, 'ALERT', '<'*25)
+            if P2 < 0.0: 
+                print(f'negative pressure at {i+1}/{N}')
+            else: 
+                print(f'negative temperature at {i+1}/{N}')
+            break
+            
+        if r2 < 0.0:
+            print(f' aborted at {i+1}/{N}')
+            break # abort sim
+
+        # --------- Save data for next step ---------
+        if i < len(data)-1:
+            data[i+1,0] = r2
+            data[i+1,1] = m2
+            data[i+1,2] = P2
+            data[i+1,5] = T2
+
+    # -------------- Clean up data --------------
+    data =  data[:-(N-i)] # the last lines contain no useful/realistic data and can be removed
+
+    # ------------ Moment of Inertia ------------
+    calculate_normalised_MoI(data, M_surf, R_surf)
+
+    # ----------------- Save data ---------------
+    save_data(data, N, output_name, grid_type='m')
+    if save_plot:
+        plot_data(data, N, output_name, grid_type='m', show_plot=show_plot)
 
 def simulate_tabulated_ivp(R_surf, M_surf, P_surf, T_surf, method, element, filename, N, theta, output_name, show_plot=False, save_plot=True):
     '''    
@@ -1390,156 +1544,6 @@ def simulate_tabulated_ivp(R_surf, M_surf, P_surf, T_surf, method, element, file
     save_data(data, N, output_name)
     if save_plot:
         plot_data(data, N, output_name, show_plot=show_plot)
-
-def simulate_tabulated_Euler_m_grid(R_surf, M_surf, P_surf, T_surf, element, filename, N, theta, output_name, show_plot=False, save_plot=True):
-    '''
-    Prameters:
-        R_surf: [cm] radius of planet
-        M_surf: [g] total mass of planet
-        P_surf: [dyne/cm^2] surface pressure of planet
-        T_surf: [K] surface temperature of planet
-        element: 'H', or 'H2O'
-        filename: path to tabulated data
-        N: number of steps
-        theta: strech factor -> higher = m_grid is more dense close to the surface
-        output_name: name for data and plot file
-    '''
-    global warning_tracker
-    warning_tracker.reset()
-
-    # ------------- Look up tables --------------
-    if element == 'H':
-        columns = [
-            'log_T', 'log_P', 'log_rho', 'log_U', 'log_s', 
-            'dlrho_dlT_P', 'dlrho_dlP_T', 'dlS_dlT_P', 'dlS_dlP_T', 'grad_ad'
-        ]
-
-        T_vals, P_vals, rho_3D, grad_ad_3D = parse_EoS_H(filename, columns)
-        interpolator_rho = RegularGridInterpolator((T_vals, P_vals), rho_3D)
-        interpolator_grad_ad = RegularGridInterpolator((T_vals, P_vals), grad_ad_3D)
-    elif element == 'H2O':
-        if 'pt' in filename:
-            columns = [
-            'press', 'temp', 'rho', 'ad_grad', 's', 
-            'u', 'c', 'mmw', 'x_ion', 'x_d', 'phase'
-        ]
-        elif 'rhot' in filename:
-            columns = [
-            'rho', 'temp', 'press', 'ad_grad', 's', 
-            'u', 'c', 'mmw', 'x_ion', 'x_d', 'phase'
-        ]
-        elif 'rhou' in filename:
-            columns = [
-            'rho', 'u', 'press', 'temp', 'ad_grad', 's', 
-            'w', 'mmw', 'x_ion', 'x_d', 'phase'
-        ]
-        else:
-            print(f'invalid file: {filename}')
-
-        T_vals, P_vals, rho_3D, grad_ad_3D = parse_EoS_H2O(filename, columns)
-        interpolator_rho = RegularGridInterpolator((T_vals, P_vals), rho_3D)
-        interpolator_grad_ad = RegularGridInterpolator((T_vals, P_vals), grad_ad_3D)
-    else:
-        print(f'invalid element: {element}')
-        return
-
-    # ------------ Inital conditions ------------
-    m_grid, data = create_grids(M_surf, N, theta)
-
-    data[0,0] = R_surf
-    data[0,1] = M_surf
-    data[0,2] = P_surf
-    data[0,5] = T_surf
-
-    # ------------- Run simulation --------------
-    print(f'start tabulated {element} (Euler, m-grid)')
-    for i in range(N):
-        m1 = m_grid[i]
-        m2 = m_grid[i+1]
-        
-        r1 = data[i,0] 
-        P1 = data[i,2]
-        T1 = data[i,5]
-        
-        # ------------------- EoS -------------------
-        if element == 'H':
-            rho = EoS_tabulated_H(P1, T1, interpolator_rho)
-        elif element == 'H2O':
-            rho = EoS_tabulated_H2O(P1, T1, interpolator_rho)
-        # -------------------------------------------
-        
-        data[i,3] = rho
-        
-        # ---------- Calculate derivatives ----------
-        if m2 < 1e-10: # handle div by 0 error
-            m2 = 1e-10 
-
-        dr_dm = 1.0 / (4 * np.pi * r1**2 * rho)
-        dP_dm = -G * m1 / (4 * np.pi * r1**4)
-        
-        # ------ Update values (Euler method) -------
-        dm = m2 - m1
-        r2 = r1 + dr_dm * dm
-        P2 = P1 + dP_dm * dm
-        
-        # ---------- Find next temperature ----------
-        if element == 'H':
-            P_query = P1 * 1e-10 # dyne/cm^2 -> GPa
-            P_query = np.log10(P_query)
-            T_query = np.log10(T1) # K
-
-            if T_query < min(T_vals) or  max(T_vals) < T_query:
-                T_query = np.clip(T_query, min(T_vals), max(T_vals))
-
-            if P_query < min(P_vals) or max(P_vals) < P_query:
-                P_query = np.clip(P_query, min(P_vals), max(P_vals))
-
-            grad_ad = interpolator_grad_ad([T_query, P_query])[0]
-
-        elif element == 'H2O':
-            P_query = P1 * 0.1 # dyne/cm^2 -> Pa
-            T_query = T1 # K
-
-            if T_query < min(T_vals) or  max(T_vals) < T_query:
-                T_query = np.clip(T_query, min(T_vals), max(T_vals))
-
-            if P_query < min(P_vals) or max(P_vals) < P_query:
-                P_query = np.clip(P_query, min(P_vals), max(P_vals))
-
-            grad_ad = interpolator_grad_ad([T_query, P_query])[0]
-
-        T2 = T1/P1 * (P2 - P1) * grad_ad + T1
-
-        # -------- Check if data makes sense --------
-        if P2 < 0.0 or T2 < 0.0:
-            print('>'*25, 'ALERT', '<'*25)
-            if P2 < 0.0: 
-                print(f'negative pressure at {i+1}/{N}')
-            else: 
-                print(f'negative temperature at {i+1}/{N}')
-            break
-            
-        if r2 < 0.0:
-            print(f' aborted at {i+1}/{N}')
-            break # abort sim
-
-        # --------- Save data for next step ---------
-        if i < len(data)-1:
-            data[i+1,0] = r2
-            data[i+1,1] = m2
-            data[i+1,2] = P2
-            data[i+1,5] = T2
-
-    # -------------- Clean up data --------------
-    data =  data[:-(N-i)] # the last lines contain no useful/realistic data and can be removed
-
-    # ------------ Moment of Inertia ------------
-    calculate_normalised_MoI(data, M_surf, R_surf)
-
-    # ----------------- Save data ---------------
-    save_data(data, N, output_name, grid_type='m')
-    if save_plot:
-        plot_data(data, N, output_name, grid_type='m', show_plot=show_plot)
 
 def simulate_tabulated_ivp_m_grid(R_surf, M_surf, P_surf, T_surf, method, element, filename, N, theta, output_name, show_plot=False, save_plot=True):
     '''    
@@ -1868,17 +1872,10 @@ def solve_Euler_with_events(r1, r2, m1, P1, rho, data, i):
     dm_dr = 4 * np.pi * r1**2 * rho
     dP_dr = -G * m1 * rho / r1**2
     
-
     # ------ Update values (Euler method) -------
     dr = r2 - r1
     m2 = m1 + dm_dr * dr
     P2 = P1 + dP_dr * dr
-
-    # =============== Mas bug fix ===============
-    m2 = 4/3 * np.pi * r2**3 * rho # mass fix
-    dr = r2 - r1
-    print(dr, dm_dr, (m2 - m1)/dr)
-    # ===========================================
 
     # -------- Check if data makes sense --------
     if P2 < 0.0:
@@ -1913,9 +1910,6 @@ def solve_Euler_with_events_m_grid(m1, m2, r1, P1, rho, data, i):
     r2 = r1 + dr_dm * dm
     P2 = P1 + dP_dm * dm
 
-    r2 = np.cbrt( (3*m2) / (4*rho*np.pi) ) # radius fix
-
-    
     # -------- Check if data makes sense --------
     if P2 < 0.0:
         print('>'*25, 'ALERT', '<'*25)
@@ -2111,28 +2105,24 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, grid_type='
     if planet == 'Jupiter':
         R = 6.9911e9        # cm        [A]
         M = 1.898125e30     # g         [F]
-        rho = 1.3262        # g/cm^3    [F][I]
         P_surface = 1e6     # dyne/cm^2 = 1 Bar
         T_surface = 165     # K
 
     elif planet == 'Saturn':
         R = 5.8232e9        # cm        [A]
         M = 5.6836e29       # g         [G]
-        rho = 0.6871        # g/cm^3    [F][I]
         P_surface = 1e6     # dyne/cm^2 = 1 Bar
         T_surface = 134     # K
 
     elif planet == 'Uranus':
         R = 2.5362e9        # cm        [A][B]
         M = 8.68099e+28     # g         [H][C]
-        rho = 1.270         # g/cm^3    [F]     
         P_surface = 1e6     # dyne/cm^2 = 1 Bar
         T_surface = 76      # K         [D]
 
     elif planet == 'Earth':
         R = 6.371e8         # cm        [A]
         M = 5.97217e27      # g         [E]
-        rho = 5.5134        # g/cm^3    [F]     
         P_surface = 1e6     # dyne/cm^2 = 1 Bar
         T_surface = 288     # K     
 
@@ -2140,9 +2130,9 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, grid_type='
     G = 6.67430e-8  # cm^3 g^-1 s^-2
 
     R_gas = 8.314e7 # dyne cm^2 mol^-1 K-1
-    rho = P_surface/(R_gas*T_surface)
+    rho_surface = P_surface/(R_gas*T_surface)
     gamma = 5/3
-    C_ideal_gas = P_surface * (1/rho)**gamma
+    C_ideal_gas = P_surface * (1/rho_surface)**gamma
 
     # ---------------- References ---------------
     # [A]   Archinal, B.A. et al. 2018. "Report of the IAU/IAG Working Group on cartographic coordinates and rotational elements: 2015" Celestial Mech. Dyn. Astr. 130:22.
@@ -2462,16 +2452,18 @@ if __name__ == '__main__':
     warning_tracker = WarningTracker()
     warning_tracker.suppress_spam = True
 
-    N = 1000
-    theta = 1 # If for high N: ValueError: Values in `t_eval` are not properly sorted. -> reduce theta
+    N = 1000000
+    theta = 2 # If for high N: ValueError: Values in `t_eval` are not properly sorted. -> reduce theta
     method = 'RK45' # 'Euler', 'RK45', 'DOP853', 'Radau' 
 
-    # TODO: Welche plots soll ich machen?
     # TODO: what is wrong with Silicat (i.e. BME4)?
 
-    # ----------- Physical Constants ------------
-    G = 6.67430e-8  # cm^3 g^-1 s^-2
+    for planet in ['Earth', 'Jupiter', 'Saturn', 'Uranus']:
+        for meth in ['RK45']:
+            for gt in ['r']:
+                simulate_planet(planet,  [4], solver_method=meth, grid_type=gt, save_plot=False)
 
-
-    simulate_planet('Uranus',  [2], solver_method='Euler', grid_type='r')
+    # for meth in ['RK45']:
+    #     for gt in ['r']:
+    #         simulate_planet('Jupiter',  [1,2,3,4,5,6], solver_method=meth, grid_type=gt)
 
