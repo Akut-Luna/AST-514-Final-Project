@@ -2456,8 +2456,6 @@ if __name__ == '__main__':
     theta = 2 # If for high N: ValueError: Values in `t_eval` are not properly sorted. -> reduce theta
     method = 'RK45' # 'Euler', 'RK45', 'DOP853', 'Radau' 
 
-    # TODO: what is wrong with Silicat (i.e. BME4)?
-
     for planet in ['Earth', 'Jupiter', 'Saturn', 'Uranus']:
         for meth in ['RK45']:
             for gt in ['r']:

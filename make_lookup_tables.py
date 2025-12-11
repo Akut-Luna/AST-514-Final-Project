@@ -57,7 +57,7 @@ if __name__ == '__main__':
     ax1 = plt.subplot(1, 2, 1)
     ax1.loglog(data[:,0]*1e9, data[:,1]*1e3)
     ax1.set_xlabel('P [Pa]')
-    ax1.set_ylabel('$\\rho$ [kg/m^3]')
+    ax1.set_ylabel('$\\rho$ [kg/m$^3$]')
     ax1.set_title('Fe')
     ax1.grid(True, alpha=0.3)
 
@@ -83,7 +83,7 @@ if __name__ == '__main__':
     ax2 = plt.subplot(1, 2, 2)
     ax2.loglog(data[:,0]*1e9, data[:,1]*1e3)
     ax2.set_xlabel('P [Pa]')
-    ax2.set_ylabel('$\\rho$ [kg/m^3]')
+    ax2.set_ylabel('$\\rho$ [kg/m$^3$]')
     ax2.set_title('MgSiO$_3$')
     ax2.grid(True, alpha=0.3)
 
