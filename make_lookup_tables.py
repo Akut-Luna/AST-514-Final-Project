@@ -53,13 +53,7 @@ if __name__ == '__main__':
     header = 'P [GPa], rho [Mg/m^3]'
     np.savetxt(f'data/EoS_Fe/EoS_Fe.csv', data, delimiter=',', header=header)
 
-    plt.figure(figsize=(12,4))
-    ax1 = plt.subplot(1, 2, 1)
-    ax1.loglog(data[:,0]*1e9, data[:,1]*1e3)
-    ax1.set_xlabel('P [Pa]')
-    ax1.set_ylabel('$\\rho$ [kg/m$^3$]')
-    ax1.set_title('Fe')
-    ax1.grid(True, alpha=0.3)
+    data_fe = data
 
     # Silicat
     K0 = 247 # GPa
@@ -74,19 +68,49 @@ if __name__ == '__main__':
         data[i,1] = rho
 
     data = data[data[:, 0].argsort()] # sort by pressure
-    # data = abs(data)
-    # data = data[data[:, 0] > 0]       # disregard negative pressures
+    
+    data_mg = data
+
+    # filter out everthing above 3*10^4 kg/m^3
+    data_new = []
+    for datapoint in data:
+        if datapoint[1] < 3e4 * 1e-3:
+            data_new.append(datapoint)
+    data = np.array(data_new)
 
     header = 'P [GPa], rho [g/m^3]'
     np.savetxt(f'data/EoS_MgSiO3/EoS_MgSiO3.csv', data, delimiter=',', header=header)
 
-    ax2 = plt.subplot(1, 2, 2)
-    ax2.loglog(data[:,0]*1e9, data[:,1]*1e3)
-    ax2.set_xlabel('P [Pa]')
-    ax2.set_ylabel('$\\rho$ [kg/m$^3$]')
-    ax2.set_title('MgSiO$_3$')
-    ax2.grid(True, alpha=0.3)
+    data_filt = data
 
+    # # plot
+    # plt.figure(figsize=(9, 7))
+
+    # Use a shared y-axis
+    fig, axes = plt.subplots(3, 1, figsize=(9, 7), sharex=True)
+    (ax1, ax2, ax3) = axes
+
+    # ---- Fe ----
+    ax1.loglog(data_fe[:,0]*1e9, data_fe[:,1]*1e3)
+    ax1.text(0.02, 0.92, "Fe", transform=ax1.transAxes, fontsize=12, va='top')
+    ax1.grid(True, alpha=0.3)
+
+    # ---- MgSiO3 ----
+    ax2.loglog(data_mg[:,0]*1e9, data_mg[:,1]*1e3)
+    ax2.axvline(x=1.35e4*1e9, color='red', linestyle='--', linewidth=1)
+    ax2.set_ylim([1e3, 1e5])
+    ax2.text(0.02, 0.92, "MgSiO$_3$", transform=ax2.transAxes, fontsize=12, va='top')
+    ax2.grid(True, alpha=0.3)
+    ax2.set_ylabel('$\\rho$ [kg/m$^3$]')
+
+    # ---- MgSiO3 filtered ----
+    ax3.loglog(data_filt[:,0]*1e9, data_filt[:,1]*1e3)
+    ax3.axvline(x=1.35e4*1e9, color='red', linestyle='--', linewidth=1)
+    ax3.text(0.02, 0.92, "MgSiO$_3$ (filtered)", transform=ax3.transAxes, fontsize=12, va='top')
+    ax3.set_ylim([1e3, 1e5])
+    ax3.grid(True, alpha=0.3)
+    ax3.set_xlabel('P [Pa]')
+
+    plt.tight_layout()
     plt.savefig('plots/plot_0_look_up_tables.pdf')
     plt.show()
-
