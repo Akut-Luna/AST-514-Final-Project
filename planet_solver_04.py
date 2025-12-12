@@ -278,7 +278,7 @@ def EoS_polytropic(P):
             rho: [g/cm^3] density
     '''
 
-    K = 1.96e12 # (cm^2/g)^2 * dyne/cm^2
+    K = 1.96e12 # (cm^3/g)^2 * dyne/cm^2
     rho = np.sqrt(P/K) # g/cm^2
     
     return rho
@@ -2106,19 +2106,19 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, grid_type='
         R = 6.9911e9        # cm        [A]
         M = 1.898125e30     # g         [F]
         P_surface = 1e6     # dyne/cm^2 = 1 Bar
-        T_surface = 165     # K
+        T_surface = 165     # K         [J]
 
     elif planet == 'Saturn':
         R = 5.8232e9        # cm        [A]
         M = 5.6836e29       # g         [G]
         P_surface = 1e6     # dyne/cm^2 = 1 Bar
-        T_surface = 134     # K
+        T_surface = 135     # K         [J]
 
     elif planet == 'Uranus':
         R = 2.5362e9        # cm        [A][B]
         M = 8.68099e+28     # g         [H][C]
         P_surface = 1e6     # dyne/cm^2 = 1 Bar
-        T_surface = 76      # K         [D]
+        T_surface = 76      # K         [J][D]
 
     elif planet == 'Earth':
         R = 6.371e8         # cm        [A]
@@ -2144,6 +2144,7 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, grid_type='
     # [G]   Jacobson, R.A., et al. 2006. "The gravity field of the Saturnian system from satellite observations and spacecraft tracking data" AJ 132(6):2520-2526.
     # [H]   Jacobson, R.A. 2014. "The Orbits of the Uranian Satellites and Rings, the Gravity Field of the Uranian System, and the Orientation of the Pole of Uranus" AJ 148:76-88.
     # [I]   Helled, R. & Guillot, T. (2018). Internal Structure of Giant and Icy Planets: Importance of Heavy Elements and Mixing. H.J. Deeg, J.A. Belmonte (eds.), Handbook of Exoplanets.
+    # [J]   https://arxiv.org/pdf/2407.05853 (Ravit Helled and Saburo Howard. Giant planet interiors and atmospheres)
 
     if R == 0 or M == 0 or P_surface == 0:
         print('invalid boundary conditions')
@@ -2454,12 +2455,11 @@ if __name__ == '__main__':
 
     N = 1000000
     theta = 2 # If for high N: ValueError: Values in `t_eval` are not properly sorted. -> reduce theta
-    method = 'RK45' # 'Euler', 'RK45', 'DOP853', 'Radau' 
 
-    for planet in ['Earth', 'Jupiter', 'Saturn', 'Uranus']:
+    for planet in ['Uranus']:
         for meth in ['RK45']:
             for gt in ['r']:
-                simulate_planet(planet,  [4], solver_method=meth, grid_type=gt, save_plot=False)
+                simulate_planet(planet,  [6], solver_method=meth, grid_type=gt, save_plot=False)
 
     # for meth in ['RK45']:
     #     for gt in ['r']:
