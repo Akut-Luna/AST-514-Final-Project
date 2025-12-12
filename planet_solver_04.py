@@ -2456,10 +2456,10 @@ if __name__ == '__main__':
     N = 1000000
     theta = 2 # If for high N: ValueError: Values in `t_eval` are not properly sorted. -> reduce theta
 
-    for planet in ['Uranus']:
+    for planet in ['Earth', 'Jupiter', 'Saturn', 'Uranus']:
         for meth in ['RK45']:
             for gt in ['r']:
-                simulate_planet(planet,  [6], solver_method=meth, grid_type=gt, save_plot=False)
+                simulate_planet(planet,  [4], solver_method=meth, grid_type=gt, save_plot=False)
 
     # for meth in ['RK45']:
     #     for gt in ['r']:
