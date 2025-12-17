@@ -2464,10 +2464,15 @@ if __name__ == '__main__':
     N = 1000000
     theta = 2 # If for high N: ValueError: Values in `t_eval` are not properly sorted. -> reduce theta
 
-    planets = ['Earth', 'Jupiter', 'Saturn', 'Uranus']
+    # planets = ['Earth', 'Jupiter', 'Saturn', 'Uranus']
+    # methods = ['RK45']
+    # grid_types = ['m']
+    # EoSs = [1,2,3,4,5,6]
+
+    planets = ['Jupiter']
     methods = ['RK45']
-    grid_types = ['m']
-    EoSs = [1,2,3,4,5,6]
+    grid_types = ['r']
+    EoSs = [1]
 
     # Create all combinations with N included
     tasks = list(product([N], [theta], planets, methods, grid_types, EoSs))
