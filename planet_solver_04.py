@@ -4,6 +4,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
 from scipy.interpolate import RegularGridInterpolator
+from multiprocessing import Pool, cpu_count
+from itertools import product
 
 # ================= reduce spam =================
 class WarningTracker:
@@ -2084,7 +2086,7 @@ def solve_ivp_with_events_m_grid(system_func, m_grid, y0, method, N, data):
     
     return data
 
-def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, grid_type='r', solver_method='RK45', save_plot=False):
+def simulate_planet(N, theta, planet, EoS, R=0, M=0, P_surface=0, T_surface=0, grid_type='r', solver_method='RK45', save_plot=False):
     '''
     Parameters:
         planet: name (Earth, Jupiter, Saturn and Uranus don't require parameters)
@@ -2449,19 +2451,34 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, grid_type='
     else:
         print('invalid grid type:', grid_type)
 
-if __name__ == '__main__':
+def run_simulation(args):
+    global warning_tracker
     warning_tracker = WarningTracker()
     warning_tracker.suppress_spam = True
+
+    N, theta, planet, meth, gt, EoS = args
+    simulate_planet(N, theta, planet, [EoS], solver_method=meth, grid_type=gt, save_plot=False)
+
+if __name__ == '__main__':
 
     N = 1000000
     theta = 2 # If for high N: ValueError: Values in `t_eval` are not properly sorted. -> reduce theta
 
-    for planet in ['Earth', 'Jupiter', 'Saturn', 'Uranus']:
-        for meth in ['RK45']:
-            for gt in ['r']:
-                simulate_planet(planet,  [4], solver_method=meth, grid_type=gt, save_plot=False)
+    planets = ['Earth', 'Jupiter', 'Saturn', 'Uranus']
+    methods = ['RK45']
+    grid_types = ['m']
+    EoSs = [1,2,3,4,5,6]
 
-    # for meth in ['RK45']:
-    #     for gt in ['r']:
-    #         simulate_planet('Jupiter',  [1,2,3,4,5,6], solver_method=meth, grid_type=gt)
+    # Create all combinations with N included
+    tasks = list(product([N], [theta], planets, methods, grid_types, EoSs))
+    
+    # Use all cores minus 1
+    num_cores = max(1, cpu_count() - 1)
+    
+    with Pool(processes=num_cores) as pool:
+        pool.map(run_simulation, tasks)
 
+    # for planet in ['Earth', 'Jupiter', 'Saturn', 'Uranus']:
+    #     for meth in ['RK45']:
+    #         for gt in ['m']:
+    #             simulate_planet(planet,  [1,2,3,4,5,6], solver_method=meth, grid_type=gt, save_plot=False)
