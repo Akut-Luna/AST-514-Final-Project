@@ -27,7 +27,6 @@ def EoS_BME4(eta, K0, K0_prime, K0_double_prime):
     
     return test0*(test1 + test2)
 
-
 if __name__ == '__main__':
 
     N = 100000
