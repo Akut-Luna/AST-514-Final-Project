@@ -2482,8 +2482,3 @@ if __name__ == '__main__':
     
     with Pool(processes=num_cores) as pool:
         pool.map(run_simulation, tasks)
-
-    # for planet in ['Earth', 'Jupiter', 'Saturn', 'Uranus']:
-    #     for meth in ['RK45']:
-    #         for gt in ['m']:
-    #             simulate_planet(planet,  [1,2,3,4,5,6], solver_method=meth, grid_type=gt, save_plot=False)
