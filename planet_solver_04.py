@@ -2110,13 +2110,13 @@ def simulate_planet(planet, EoS, R=0, M=0, P_surface=0, T_surface=0, grid_type='
 
     elif planet == 'Saturn':
         R = 5.8232e9        # cm        [A]
-        M = 5.6836e29       # g         [G]
+        M = 5.68317e29      # g         [G]
         P_surface = 1e6     # dyne/cm^2 = 1 Bar
         T_surface = 135     # K         [J]
 
     elif planet == 'Uranus':
         R = 2.5362e9        # cm        [A][B]
-        M = 8.68099e+28     # g         [H][C]
+        M = 8.68099e28      # g         [H][C]
         P_surface = 1e6     # dyne/cm^2 = 1 Bar
         T_surface = 76      # K         [J][D]
 
