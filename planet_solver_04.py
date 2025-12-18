@@ -851,6 +851,83 @@ def simulate_analytical_ivp_m_grid(R_surf, M_surf, P_surf, method, element, N, t
     if save_plot:
         plot_data(data, N, output_name, grid_type='m', sim_method=method, show_plot=show_plot)
 
+def simulate_analytical_core_ivp_m_grid(R_change, R_surf, M_surf, P_surf, method, N, theta, output_name, show_plot=False, save_plot=True):
+    '''    
+    Parameters:
+        R_change: fraction of radius at which we change EoS
+        R_surf: [cm] radius of planet
+        M_surf: [g] total mass of planet
+        P_surf: [dyne/cm^2] surface pressure of planet
+        method: ode solver 'RK45', 'DOP853', 'Radau'
+        N: number of steps
+        theta: stretch factor -> higher = m_grid is more dense close to the surface
+        output_name: name for data and plot file
+    '''
+    # ------------- Look up tables --------------
+    df_Fe = pd.read_csv('data/EoS_Fe/EoS_Fe.csv', names=['p', 'rho'], skiprows=1)
+    df_MgSiO3 = pd.read_csv('data/EoS_MgSiO3/EoS_MgSiO3.csv', names=['p', 'rho'], skiprows=1)
+
+    # ------------ Initial conditions ------------
+    m_grid, data = create_grids(M_surf, N, theta)
+    
+    data[0,0] = R_surf
+    data[0,1] = M_surf
+    data[0,2] = P_surf
+
+    # ------------- Run simulation --------------
+    print(f'start analytical ({method}, m-grid)')
+    
+    # Define the system of ODEs
+    def system_of_ODEs(m, y):
+        r, P = y
+        
+        # Prevent numerical issues near center
+        if m < 1e-10:
+            m = 1e-10
+        
+        # ----------------- EoS -----------------
+        if r/R_surf >= R_change:
+            rho = EoS_analytical_MgSiO3(P, df_MgSiO3)
+        else:
+            rho = EoS_analytical_Fe(P, df_Fe)
+        # ---------------------------------------
+        
+        # ODEs
+        dr_dm = 1.0 / (4 * np.pi * r**2 * rho)
+        dP_dm = -G * m / (4 * np.pi * r**4)
+        
+        return [dr_dm, dP_dm]
+    
+    # Solve the system using solve_ivp
+    data = solve_ivp_with_events_m_grid(
+        system_of_ODEs,
+        m_grid,
+        [R_surf, P_surf],
+        method,
+        N,
+        data
+    )
+    
+    # ----------------- Density -----------------
+    for i, (r, P) in enumerate(zip(data[:,0], data[:,2])):
+        
+        # ----------------- EoS -----------------
+        if r/R_surf >= R_change:
+            rho = EoS_analytical_MgSiO3(P, df_MgSiO3)
+        else:
+            rho = EoS_analytical_Fe(P, df_Fe)
+        # ---------------------------------------
+
+        data[i,3] = rho
+    
+    # ------------ Moment of Inertia ------------
+    calculate_normalised_MoI(data, M_surf, R_surf)
+    
+    # ----------------- Save data ---------------
+    save_data(data, N, output_name, grid_type='m')
+    if save_plot:
+        plot_data(data, N, output_name, grid_type='m', sim_method=method, show_plot=show_plot)
+
 # ================== tabulated ==================
 def parse_EoS_H(filename, columns):
     '''
@@ -2464,6 +2541,8 @@ if __name__ == '__main__':
     N = 1000000
     theta = 2 # If for high N: ValueError: Values in `t_eval` are not properly sorted. -> reduce theta
 
+    # -------------- multi process --------------
+
     # planets = ['Earth', 'Jupiter', 'Saturn', 'Uranus']
     # methods = ['RK45']
     # grid_types = ['m']
@@ -2480,5 +2559,25 @@ if __name__ == '__main__':
     # Use all cores minus 1
     num_cores = max(1, cpu_count() - 1)
     
-    with Pool(processes=num_cores) as pool:
-        pool.map(run_simulation, tasks)
+    # with Pool(processes=num_cores) as pool:
+    #     pool.map(run_simulation, tasks)
+    
+    # ------------------ core -------------------
+    R = 6.371e8         # cm
+    M = 5.97217e27      # g
+    P_surface = 1e6     # dyne/cm^2 = 1 Bar
+    T_surface = 288     # K
+    G = 6.67430e-8      # cm^3 g^-1 s^-2
+   
+    R_change = 0.55
+    simulate_analytical_core_ivp_m_grid(
+        R_change,
+        R, 
+        M,
+        P_surface,
+        'RK45',
+        N=N,
+        theta=theta,
+        output_name=f'../../plot_core/Earth_04.5_analytical_core_RK45_theta_{theta}',
+        save_plot=False
+    )
