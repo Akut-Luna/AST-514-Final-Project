@@ -2569,7 +2569,7 @@ if __name__ == '__main__':
     T_surface = 288     # K
     G = 6.67430e-8      # cm^3 g^-1 s^-2
    
-    R_change = 0.55
+    R_change = 0.19 #0.55
     simulate_analytical_core_ivp_m_grid(
         R_change,
         R, 
@@ -2578,6 +2578,6 @@ if __name__ == '__main__':
         'RK45',
         N=N,
         theta=theta,
-        output_name=f'../../plot_core/Earth_04.5_analytical_core_RK45_theta_{theta}',
+        output_name=f'../../plot_core/{R_change}',
         save_plot=False
     )

@@ -5,27 +5,16 @@ def EoS_Vinet(eta, K0, K0_prime):
     P = 3*K0 * eta**(2/3) * (1-eta**(-1/3)) * np.exp(3/2 * (K0_prime - 1)*(1-eta**(-1/3)))
     return P
 
-def EoS_BME(eta, K0, K0_prime):
-    P = 3/2*K0 * (eta**(7/3) - eta**(5/3)) * (1 + 3/4 * (K0_prime - 4) * (eta**(2/3) - 1))
-    return P
-
 def EoS_BME4(eta, K0, K0_prime, K0_double_prime):
-    # P = EoS_BME(eta, K0, K0_prime)
-    # term1 = 3/2*K0 * (eta**(7/3) - eta**(5/3))
-    # term2 = 3/8 * K0 * (eta**(2/3) - 1)**2
-    # term3 = K0*K0_double_prime + K0_prime*(K0_prime - 7) + 143/9
-    # P +=  term1 * term2 * term3 # <--- PROBLEM
-    # return P
-
     K_0 = K0
     K_1 = K0_prime
     K_2 = K0_double_prime
 
-    test0 = 1.5*K_0*(eta**(7./3.) - eta**(5./3.))
-    test1 = (1 + 0.75*(K_1 - 4.)*(eta**(2./3.) - 1))
-    test2 = (3./8.)*(eta**(2./3.) - 1)*(eta**(2./3.) - 1)*(K_0*K_2 + K_1*(K_1 - 7.) + 143./9.)
+    term_1 = 1.5*K_0*(eta**(7./3.) - eta**(5./3.))
+    term_2 = (1 + 0.75*(K_1 - 4.)*(eta**(2./3.) - 1))
+    term_3 = (3./8.)*(eta**(2./3.) - 1)*(eta**(2./3.) - 1)*(K_0*K_2 + K_1*(K_1 - 7.) + 143./9.)
     
-    return test0*(test1 + test2)
+    return term_1*(term_2 + term_3)
 
 if __name__ == '__main__':
 
